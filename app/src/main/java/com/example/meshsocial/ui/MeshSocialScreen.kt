@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.meshsocial.ble.BlePermissions
@@ -40,6 +42,7 @@ import com.example.meshsocial.domain.model.Post
 import com.example.meshsocial.domain.model.User
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 
 private enum class Tab { HOME, NEARBY, DEBUG }
 
@@ -157,6 +160,8 @@ private fun NearbyPeersTab(viewModel: MainViewModel) {
     val context = LocalContext.current
     val peers by viewModel.peers.collectAsStateWithLifecycle()
     val scanning by viewModel.scanning.collectAsStateWithLifecycle()
+    val connectionLog by viewModel.connectionLog.collectAsStateWithLifecycle()
+    val connectedPeers by viewModel.connectedPeers.collectAsStateWithLifecycle()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -174,60 +179,146 @@ private fun NearbyPeersTab(viewModel: MainViewModel) {
 
     val bleAvailable = context.packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Text("Nearby peer discovery", style = MaterialTheme.typography.titleLarge)
-        Text("BLE scan + advertise for other Mesh Social devices. Scans are time-bounded.")
-        Spacer(Modifier.height(12.dp))
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // ── Header ──────────────────────────────────────────────
+        item {
+            Text("Nearby peer discovery", style = MaterialTheme.typography.titleLarge)
+            Text("BLE scan + advertise for other Mesh Social devices. Scans are time-bounded.")
+            Spacer(Modifier.height(12.dp))
 
-        Button(
-            onClick = {
-                if (scanning) {
-                    viewModel.stopDiscovery()
-                } else {
-                    val missing = BlePermissions.missing(context)
-                    if (missing.isEmpty()) {
-                        viewModel.startDiscovery()
-                    } else {
-                        permissionLauncher.launch(missing.toTypedArray())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        if (scanning) {
+                            viewModel.stopDiscovery()
+                        } else {
+                            val missing = BlePermissions.missing(context)
+                            if (missing.isEmpty()) {
+                                viewModel.startDiscovery()
+                            } else {
+                                permissionLauncher.launch(missing.toTypedArray())
+                            }
+                        }
+                    },
+                    enabled = bleAvailable,
+                ) {
+                    Text(if (scanning) "Stop scan" else "Scan for nearby devices")
+                }
+                Button(
+                    onClick = { viewModel.reconcileConnections() },
+                    enabled = peers.isNotEmpty(),
+                ) {
+                    Text("Reconcile")
+                }
+            }
+            if (!bleAvailable) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "BLE is not available on this device.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (scanning) {
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        }
+
+        // ── Connected peers ─────────────────────────────────────
+        if (connectedPeers.isNotEmpty()) {
+            item {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "${connectedPeers.size} connected peer(s)",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            items(connectedPeers, key = { it }) { peerId ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("●", color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            peerId.toString().take(8),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        Text("connected", style = MaterialTheme.typography.bodySmall)
                     }
                 }
-            },
-            enabled = bleAvailable,
-        ) {
-            Text(if (scanning) "Stop scan" else "Scan for nearby devices")
+            }
         }
-        if (!bleAvailable) {
+
+        // ── Discovered candidates ───────────────────────────────
+        item {
             Spacer(Modifier.height(8.dp))
             Text(
-                "BLE is not available on this device.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
+                "${peers.size} device(s) seen",
+                style = MaterialTheme.typography.labelMedium,
             )
         }
-        if (scanning) {
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        items(peers, key = { it.candidateId }) { candidate ->
+            PeerCandidateCard(candidate, connectedPeers)
         }
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "${peers.size} device(s) seen",
-            style = MaterialTheme.typography.labelMedium,
-        )
-        Spacer(Modifier.height(8.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(peers, key = { it.candidateId }) { PeerCandidateCard(it) }
+
+        // ── Connection log ──────────────────────────────────────
+        if (connectionLog.isNotEmpty()) {
+            item {
+                Spacer(Modifier.height(12.dp))
+                Text("Connection log", style = MaterialTheme.typography.titleMedium)
+            }
+            items(connectionLog) { line ->
+                Text(
+                    line,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun PeerCandidateCard(candidate: PeerCandidate) {
+private fun PeerCandidateCard(candidate: PeerCandidate, connectedPeers: List<UUID>) {
     val formatter = remember { DateTimeFormatter.ofPattern("HH:mm:ss") }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    val isConnected = candidate.knownPeerId != null && candidate.knownPeerId in connectedPeers
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = if (isConnected) {
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            )
+        } else {
+            CardDefaults.cardColors()
+        },
+    ) {
         Column(Modifier.padding(12.dp)) {
-            Text(candidate.candidateId, style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(candidate.candidateId, style = MaterialTheme.typography.labelLarge)
+                if (isConnected) {
+                    Text(
+                        "● linked",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("RSSI ${candidate.rssi} dBm", style = MaterialTheme.typography.bodyMedium)
+                candidate.knownPeerId?.let {
+                    Text("peer ${it.toString().take(8)}", style = MaterialTheme.typography.bodySmall)
+                }
                 Text(
                     candidate.discoveredAt.atZone(ZoneId.systemDefault()).format(formatter),
                     style = MaterialTheme.typography.labelSmall,

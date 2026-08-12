@@ -6,25 +6,33 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
-import android.os.ParcelUuid
 import android.util.Log
 import com.example.meshsocial.discovery.PeerCandidate
 import com.example.meshsocial.discovery.PeerDiscovery
+import com.example.meshsocial.discovery.SUPPORTED_PROTOCOL_VERSION
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import java.nio.ByteBuffer
 import java.time.Instant
+import java.util.UUID
 
 /**
- * BLE discovery adapter only. It does NOT establish GATT connections yet.
- * Caller must ensure runtime Bluetooth permissions are granted.
+ * BLE discovery adapter. It does NOT establish GATT connections yet.
+ *
+ * The advertisement carries the stable peer UUID in manufacturer data so the
+ * scanner can resolve [PeerCandidate.knownPeerId] and protocol version without
+ * a full GATT handshake (and the topology policy can rank peers deterministically).
  */
-class BlePeerDiscovery(context: Context) : PeerDiscovery {
+class BlePeerDiscovery(
+    context: Context,
+    private val localPeerId: () -> UUID?,
+) : PeerDiscovery {
     companion object {
         private const val TAG = "BlePeerDiscovery"
+        private const val MANUFACTURER_ID = 0x4D53 // "MS" in ASCII
     }
 
     private val manager = context.getSystemService(BluetoothManager::class.java)
@@ -40,28 +48,42 @@ class BlePeerDiscovery(context: Context) : PeerDiscovery {
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            val uuids = result.scanRecord?.serviceUuids.orEmpty()
-            // Filter in-app instead of via ScanFilter: APCF (hardware) filtering of the
-            // service UUID is unreliable in the emulated BLE radio, so the filter would
-            // silently drop every result during emulator testing.
-            if (uuids.none { it.uuid == MeshGattUuids.SERVICE }) return
+            // Filter in-app instead of via ScanFilter: APCF (hardware) filtering is
+            // unreliable in the emulated BLE radio. Mesh peers advertise our
+            // manufacturer data carrying [version byte][peer UUID].
+            val payload = result.scanRecord?.manufacturerSpecificData?.get(MANUFACTURER_ID)
+            if (payload == null || payload.size != 17) return
+
+            val buffer = ByteBuffer.wrap(payload)
+            val protocolVersion = buffer.get().toInt()
+            val peerId = UUID(buffer.long, buffer.long)
+
             Log.i(
                 TAG,
                 "FOUND PEER device=${result.device.address} rssi=${result.rssi} " +
-                    "serviceUuids=${result.scanRecord?.serviceUuids}"
+                    "peerId=${peerId.toString().take(8)} proto=$protocolVersion"
             )
             _peers.tryEmit(
                 PeerCandidate(
                     candidateId = result.device.address,
-                    knownPeerId = null, // learned later during HELLO
+                    knownPeerId = peerId,
                     rssi = result.rssi,
                     discoveredAt = Instant.now(),
+                    protocolVersion = protocolVersion,
                 )
             )
         }
     }
 
-    private val advertiseCallback = object : AdvertiseCallback() {}
+    private val advertiseCallback = object : AdvertiseCallback() {
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
+            Log.i(TAG, "advertising started")
+        }
+
+        override fun onStartFailure(errorCode: Int) {
+            Log.w(TAG, "advertising failed error=$errorCode")
+        }
+    }
 
     @SuppressLint("MissingPermission")
     override suspend fun startDiscovery() {
@@ -69,9 +91,8 @@ class BlePeerDiscovery(context: Context) : PeerDiscovery {
         val localScanner = scanner ?: return
         val localAdvertiser = advertiser ?: return
 
-        val service = ParcelUuid(MeshGattUuids.SERVICE)
         // No hardware ScanFilter: the emulated BLE radio drops filtered results, and
-        // service-UUID matching happens in onScanResult above.
+        // mesh-peer matching happens in onScanResult (manufacturer data).
         val scanSettings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .build()
@@ -82,11 +103,22 @@ class BlePeerDiscovery(context: Context) : PeerDiscovery {
             .setConnectable(true)
             .setTimeout(0)
             .build()
-        val advertiseData = AdvertiseData.Builder()
-            .addServiceUuid(service)
+
+        // Advertise ONLY manufacturer data. A 128-bit service UUID (18 bytes) plus
+        // the peer-UUID payload (20 bytes) exceeds the 31-byte legacy advertising
+        // limit and startAdvertising fails. The mesh service UUID is still resolved
+        // via GATT service discovery after the connection is established.
+        val builder = AdvertiseData.Builder()
             .setIncludeDeviceName(false)
-            .build()
-        localAdvertiser.startAdvertising(advertiseSettings, advertiseData, advertiseCallback)
+        localPeerId()?.let { peerId ->
+            val payload = ByteBuffer.allocate(17)
+                .put(SUPPORTED_PROTOCOL_VERSION.toByte())
+                .putLong(peerId.mostSignificantBits)
+                .putLong(peerId.leastSignificantBits)
+                .array()
+            builder.addManufacturerData(MANUFACTURER_ID, payload)
+        }
+        localAdvertiser.startAdvertising(advertiseSettings, builder.build(), advertiseCallback)
         started = true
     }
 
