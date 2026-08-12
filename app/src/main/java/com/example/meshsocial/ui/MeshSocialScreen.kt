@@ -1,5 +1,8 @@
 package com.example.meshsocial.ui
 
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -20,20 +24,24 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.meshsocial.ble.BlePermissions
+import com.example.meshsocial.discovery.PeerCandidate
 import com.example.meshsocial.domain.model.Post
 import com.example.meshsocial.domain.model.User
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private enum class Tab { HOME, DEBUG }
+private enum class Tab { HOME, NEARBY, DEBUG }
 
 @Composable
 fun MeshSocialScreen(viewModel: MainViewModel) {
@@ -69,11 +77,13 @@ fun MeshSocialScreen(viewModel: MainViewModel) {
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { tab = Tab.HOME }) { Text("Home") }
+                    Button(onClick = { tab = Tab.NEARBY }) { Text("Nearby") }
                     Button(onClick = { tab = Tab.DEBUG }) { Text("Debug") }
                 }
                 Spacer(Modifier.height(12.dp))
                 when (tab) {
                     Tab.HOME -> HomeFeed(user!!, feed, viewModel::createPost)
+                    Tab.NEARBY -> NearbyPeersTab(viewModel)
                     Tab.DEBUG -> DebugScreen(log, viewModel::runSyncDemo)
                 }
             }
@@ -138,6 +148,91 @@ private fun PostCard(post: Post, localUser: User) {
                 post.createdAt.atZone(ZoneId.systemDefault()).format(formatter),
                 style = MaterialTheme.typography.labelSmall,
             )
+        }
+    }
+}
+
+@Composable
+private fun NearbyPeersTab(viewModel: MainViewModel) {
+    val context = LocalContext.current
+    val peers by viewModel.peers.collectAsStateWithLifecycle()
+    val scanning by viewModel.scanning.collectAsStateWithLifecycle()
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.all { it.value }) {
+            viewModel.startDiscovery()
+        } else {
+            viewModel.setMessage("Nearby device permission denied")
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { viewModel.stopDiscovery() }
+    }
+
+    val bleAvailable = context.packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text("Nearby peer discovery", style = MaterialTheme.typography.titleLarge)
+        Text("BLE scan + advertise for other Mesh Social devices. Scans are time-bounded.")
+        Spacer(Modifier.height(12.dp))
+
+        Button(
+            onClick = {
+                if (scanning) {
+                    viewModel.stopDiscovery()
+                } else {
+                    val missing = BlePermissions.missing(context)
+                    if (missing.isEmpty()) {
+                        viewModel.startDiscovery()
+                    } else {
+                        permissionLauncher.launch(missing.toTypedArray())
+                    }
+                }
+            },
+            enabled = bleAvailable,
+        ) {
+            Text(if (scanning) "Stop scan" else "Scan for nearby devices")
+        }
+        if (!bleAvailable) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "BLE is not available on this device.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        if (scanning) {
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "${peers.size} device(s) seen",
+            style = MaterialTheme.typography.labelMedium,
+        )
+        Spacer(Modifier.height(8.dp))
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(peers, key = { it.candidateId }) { PeerCandidateCard(it) }
+        }
+    }
+}
+
+@Composable
+private fun PeerCandidateCard(candidate: PeerCandidate) {
+    val formatter = remember { DateTimeFormatter.ofPattern("HH:mm:ss") }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Text(candidate.candidateId, style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("RSSI ${candidate.rssi} dBm", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    candidate.discoveredAt.atZone(ZoneId.systemDefault()).format(formatter),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
         }
     }
 }

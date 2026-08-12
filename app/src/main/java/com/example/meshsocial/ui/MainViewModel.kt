@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.meshsocial.MeshSocialApplication
+import com.example.meshsocial.discovery.PeerCandidate
+import com.example.meshsocial.discovery.PeerCandidateTracker
 import com.example.meshsocial.domain.model.Post
 import com.example.meshsocial.domain.model.User
 import com.example.meshsocial.domain.usecase.CreatePostResult
@@ -13,6 +15,7 @@ import com.example.meshsocial.sim.InMemoryPendingSyncRepository
 import com.example.meshsocial.sim.InMemoryPeerStateRepository
 import com.example.meshsocial.sim.InMemoryPostRepository
 import com.example.meshsocial.sync.PairwiseAntiEntropySynchronizer
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +40,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _debugLog = MutableStateFlow<List<String>>(emptyList())
     val debugLog: StateFlow<List<String>> = _debugLog.asStateFlow()
 
+    private val _peers = MutableStateFlow<List<PeerCandidate>>(emptyList())
+    val peers: StateFlow<List<PeerCandidate>> = _peers.asStateFlow()
+
+    private val _scanning = MutableStateFlow(false)
+    val scanning: StateFlow<Boolean> = _scanning.asStateFlow()
+
+    private val candidateTracker = PeerCandidateTracker()
+    private var scanWindowJob: Job? = null
+
     init {
         viewModelScope.launch {
             container.users.observeCurrentUser().collect { _user.value = it }
@@ -47,10 +59,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
+            container.peerDiscovery.discoveredPeers.collect { candidate ->
+                _peers.value = candidateTracker.onCandidate(candidate)
+            }
+        }
+        viewModelScope.launch {
             while (true) {
                 container.posts.deleteExpired(Instant.now())
                 delay(60_000)
             }
+        }
+    }
+
+    fun setMessage(text: String) {
+        _message.value = text
+    }
+
+    fun startDiscovery(scanWindowSeconds: Long = 30) {
+        if (_scanning.value) return
+        viewModelScope.launch {
+            _scanning.value = true
+            container.peerDiscovery.startDiscovery()
+            scanWindowJob = viewModelScope.launch {
+                delay(Duration.ofSeconds(scanWindowSeconds).toMillis())
+                stopDiscovery()
+            }
+        }
+    }
+
+    fun stopDiscovery() {
+        scanWindowJob?.cancel()
+        scanWindowJob = null
+        viewModelScope.launch {
+            container.peerDiscovery.stopDiscovery()
+            _scanning.value = false
         }
     }
 
