@@ -15,8 +15,10 @@ import android.util.Log
 import com.example.meshsocial.connection.PeerConnection
 import com.example.meshsocial.protocol.MessageCodec
 import com.example.meshsocial.protocol.SyncMessage
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -37,8 +39,8 @@ class BlePeerConnection(
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private val _incomingMessages = MutableSharedFlow<SyncMessage>(extraBufferCapacity = 64)
-    override val incomingMessages: Flow<SyncMessage> = _incomingMessages
+    private val _incomingMessages = Channel<SyncMessage>(Channel.UNLIMITED)
+    override val incomingMessages: Flow<SyncMessage> = _incomingMessages.receiveAsFlow()
 
     @Volatile
     override var remotePeerId: UUID? = null
@@ -107,8 +109,8 @@ class BlePeerConnection(
                 status == BluetoothGatt.GATT_SUCCESS
             ) {
                 ready.set(true)
-                Log.i(TAG, "READY, sending HELLO to ${device.address}")
-                sendMessage(SyncMessage.Hello(protocolVersion = 1, peerId = localPeerId))
+                Log.i(TAG, "READY, awaiting session start")
+                // The SyncSession owns the HELLO handshake; do not send one here.
             }
         }
 
@@ -132,7 +134,7 @@ class BlePeerConnection(
                     remotePeerId = message.peerId
                     Log.i(TAG, "HELLO from peer ${message.peerId}")
                 }
-                _incomingMessages.tryEmit(message)
+                _incomingMessages.trySend(message)
             }
         }
     }
@@ -159,11 +161,11 @@ class BlePeerConnection(
     }
 
     override suspend fun send(message: SyncMessage) {
-        sendMessage(message)
+        sendMessage(message, retriesRemaining = 3)
     }
 
     @SuppressLint("MissingPermission")
-    private fun sendMessage(message: SyncMessage) {
+    private suspend fun sendMessage(message: SyncMessage, retriesRemaining: Int) {
         val rx = rxCharacteristic ?: return
         val g = gatt ?: return
         val bytes = MessageCodec.encode(message)
@@ -174,7 +176,13 @@ class BlePeerConnection(
         if (result == BluetoothStatusCodes.SUCCESS || result == BluetoothGatt.GATT_SUCCESS) {
             Log.i(TAG, "sent ${message.javaClass.simpleName} (${bytes.size} bytes) to ${device.address}")
         } else {
-            Log.w(TAG, "write failed result=$result")
+            Log.w(TAG, "write failed result=$result (${message.javaClass.simpleName})")
+            // 201 = ERROR_DEVICE_DISCONNECTED. The emulated GATT link can briefly
+            // report the device as disconnected right after READY; retry shortly.
+            if (retriesRemaining > 0 && gatt != null) {
+                delay(300)
+                sendMessage(message, retriesRemaining - 1)
+            }
         }
     }
 
@@ -186,6 +194,7 @@ class BlePeerConnection(
             g.close()
             gatt = null
         }
+        _incomingMessages.close()
     }
 
     companion object {

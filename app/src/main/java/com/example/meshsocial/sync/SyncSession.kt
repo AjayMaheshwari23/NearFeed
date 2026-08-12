@@ -1,56 +1,148 @@
 package com.example.meshsocial.sync
 
+import android.util.Log
 import com.example.meshsocial.connection.PeerConnection
 import com.example.meshsocial.data.repository.PendingSyncRepository
+import com.example.meshsocial.data.repository.PeerStateRepository
 import com.example.meshsocial.data.repository.PostRepository
+import com.example.meshsocial.domain.model.PeerState
+import com.example.meshsocial.domain.model.PendingState
+import com.example.meshsocial.domain.model.PendingSyncItem
+import com.example.meshsocial.domain.model.SyncDirection
+import com.example.meshsocial.domain.model.SyncStatus
 import com.example.meshsocial.protocol.SyncMessage
 import java.time.Instant
 import java.util.UUID
 
 /**
- * Phase-2 network session skeleton.
- * PairwiseAntiEntropySynchronizer already proves the algorithm without Bluetooth.
- * Implement this after BlePeerConnection exists.
+ * Runs one anti-entropy exchange over a [PeerConnection].
+ *
+ * start() sends HELLO + our Inventory, then drives the response side by
+ * collecting the connection's incoming messages. It is idempotent: posts are
+ * inserted by unique post_id (IGNORE on conflict) and RECEIVE-side pending work
+ * is persisted before the request so interrupted transfers resume.
+ *
+ * Completion: a side sends SyncComplete once it has no outstanding RECEIVE work;
+ * when both sides have exchanged SyncComplete the session is marked successful
+ * in PeerState.
  */
 class SyncSession(
     private val localPeerId: UUID,
     private val connection: PeerConnection,
     private val posts: PostRepository,
     private val pending: PendingSyncRepository,
+    private val peerStates: PeerStateRepository,
 ) {
     val sessionId: UUID = UUID.randomUUID()
 
+    private var sentComplete = false
+    private var receivedComplete = false
+
     suspend fun start(now: Instant = Instant.now()) {
+        markAttempt(now)
         connection.send(SyncMessage.Hello(protocolVersion = 1, peerId = localPeerId))
         connection.send(SyncMessage.Inventory(sessionId, posts.activePostIds(now)))
+        Log.i(TAG, "started session $sessionId with ${connection.remotePeerId?.toString()?.take(8)}")
+        connection.incomingMessages.collect { message ->
+            handle(message, now)
+        }
     }
 
     suspend fun handle(message: SyncMessage, now: Instant = Instant.now()) {
         when (message) {
-            is SyncMessage.Hello -> Unit // validate protocol + bind transport identity to peer UUID
-            is SyncMessage.Inventory -> {
-                val local = posts.activePostIds(now)
-                val missingLocally = message.postIds - local
-                if (missingLocally.isNotEmpty()) {
-                    connection.send(SyncMessage.RequestPosts(message.sessionId, missingLocally))
-                }
-            }
+            is SyncMessage.Hello -> Unit // transport already binds remotePeerId
+            is SyncMessage.Inventory -> onInventory(message, now)
             is SyncMessage.RequestPosts -> {
                 val requested = posts.activePosts(message.postIds, now)
-                connection.send(
-                    SyncMessage.PostBatch(
-                        sessionId = message.sessionId,
-                        batchId = UUID.randomUUID(),
-                        posts = requested,
+                if (requested.isNotEmpty()) {
+                    connection.send(
+                        SyncMessage.PostBatch(
+                            sessionId = message.sessionId,
+                            batchId = UUID.randomUUID(),
+                            posts = requested,
+                        )
                     )
-                )
+                }
+                Log.i(TAG, "sent PostBatch (${requested.size} posts) to ${connection.remotePeerId?.toString()?.take(8)}")
             }
-            is SyncMessage.PostBatch -> {
-                posts.insertAll(message.posts)
-                connection.send(SyncMessage.Ack(message.sessionId, message.batchId))
-            }
+            is SyncMessage.PostBatch -> onPostBatch(message, now)
             is SyncMessage.Ack -> Unit
-            is SyncMessage.SyncComplete -> Unit
+            is SyncMessage.SyncComplete -> {
+                receivedComplete = true
+                maybeComplete(now)
+            }
         }
+    }
+
+    private suspend fun onInventory(message: SyncMessage.Inventory, now: Instant) {
+        val remoteId = connection.remotePeerId ?: run {
+            Log.w(TAG, "inventory before peer identity known; ignoring")
+            return
+        }
+        val local = posts.activePostIds(now)
+        val missing = message.postIds - local
+        if (missing.isEmpty()) {
+            Log.i(TAG, "nothing missing from ${remoteId.toString().take(8)}; sending SyncComplete")
+            sendComplete(now)
+            return
+        }
+        // Persist RECEIVE-side pending work BEFORE requesting so interrupted
+        // transfers resume on the next connection.
+        pending.save(missing.map { postId ->
+            PendingSyncItem(
+                peerId = remoteId,
+                postId = postId,
+                direction = SyncDirection.RECEIVE,
+                state = PendingState.PENDING,
+                updatedAt = now,
+            )
+        })
+        connection.send(SyncMessage.RequestPosts(message.sessionId, missing))
+        Log.i(TAG, "requesting ${missing.size} missing post(s) from ${remoteId.toString().take(8)}")
+    }
+
+    private suspend fun onPostBatch(message: SyncMessage.PostBatch, now: Instant) {
+        val remoteId = connection.remotePeerId
+        posts.insertAll(message.posts)
+        if (remoteId != null) {
+            message.posts.forEach { pending.remove(remoteId, it.postId, SyncDirection.RECEIVE) }
+        }
+        connection.send(SyncMessage.Ack(message.sessionId, message.batchId))
+        Log.i(TAG, "inserted ${message.posts.size} post(s), acked ${message.batchId.toString().take(8)}")
+
+        val remaining = remoteId?.let { pending.countForPeer(it) } ?: 0
+        if (remaining == 0) {
+            sendComplete(now)
+        }
+    }
+
+    private suspend fun sendComplete(now: Instant) {
+        if (sentComplete) return
+        sentComplete = true
+        connection.send(SyncMessage.SyncComplete(sessionId))
+        maybeComplete(now)
+    }
+
+    private suspend fun maybeComplete(now: Instant) {
+        if (!sentComplete || !receivedComplete) return
+        val remoteId = connection.remotePeerId ?: return
+        Log.i(TAG, "session complete with ${remoteId.toString().take(8)}")
+        val old = peerStates.get(remoteId) ?: PeerState(remoteId)
+        peerStates.save(old.copy(
+            lastSeenAt = now,
+            lastAttemptAt = now,
+            lastSuccessfulSyncAt = now,
+            lastSyncStatus = SyncStatus.SUCCESS,
+        ))
+    }
+
+    private suspend fun markAttempt(now: Instant) {
+        val remoteId = connection.remotePeerId ?: return
+        val old = peerStates.get(remoteId) ?: PeerState(remoteId)
+        peerStates.save(old.copy(lastSeenAt = now, lastAttemptAt = now))
+    }
+
+    companion object {
+        private const val TAG = "SyncSession"
     }
 }

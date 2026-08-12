@@ -1,9 +1,11 @@
 package com.example.meshsocial
 
 import android.content.Context
+import android.util.Log
 import androidx.room.Room
 import com.example.meshsocial.ble.BleGattConnector
 import com.example.meshsocial.ble.BleGattServer
+import com.example.meshsocial.ble.BleGattServerConnection
 import com.example.meshsocial.ble.BlePeerDiscovery
 import com.example.meshsocial.connection.ConnectionCoordinator
 import com.example.meshsocial.data.local.AppDatabase
@@ -13,13 +15,18 @@ import com.example.meshsocial.data.repository.RoomPostRepository
 import com.example.meshsocial.data.repository.RoomUserRepository
 import com.example.meshsocial.discovery.PeerDiscovery
 import com.example.meshsocial.domain.usecase.CreatePostUseCase
-import com.example.meshsocial.protocol.MessageCodec
-import com.example.meshsocial.protocol.SyncMessage
+import com.example.meshsocial.sync.SyncSession
 import com.example.meshsocial.topology.DefaultTopologyPolicy
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 class AppContainer(context: Context) {
     private val appContext = context.applicationContext
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val TAG = "AppContainer"
 
     val database: AppDatabase = Room.databaseBuilder(
         appContext,
@@ -34,9 +41,7 @@ class AppContainer(context: Context) {
 
     val peerDiscovery: PeerDiscovery = BlePeerDiscovery(
         appContext,
-        localPeerId = {
-            kotlinx.coroutines.runBlocking { users.getCurrentUser()?.userId }
-        },
+        localPeerId = { runBlockingOnIo { users.getCurrentUser()?.userId } },
     )
 
     val gattServer = BleGattServer(appContext)
@@ -44,26 +49,47 @@ class AppContainer(context: Context) {
     val connectionCoordinator = ConnectionCoordinator(
         topologyPolicy = DefaultTopologyPolicy(),
         connector = BleGattConnector(appContext, localPeerId = {
-            kotlinx.coroutines.runBlocking { users.getCurrentUser()?.userId }
+            runBlockingOnIo { users.getCurrentUser()?.userId }
         }),
         maxActiveSyncs = 3, // top-K connection slots
     )
 
     val createPost = CreatePostUseCase(posts)
 
+    private val serverConnections = mutableMapOf<String, BleGattServerConnection>()
+
     init {
-        // GATT server side of the HELLO handshake: reply with our own HELLO so the
-        // connecting client can learn our peer UUID.
+        // Client-initiated connections: start a sync session per established link.
+        connectionCoordinator.onConnected = { connection ->
+            appScope.launch {
+                val localId = users.getCurrentUser()?.userId ?: return@launch
+                SyncSession(localId, connection, posts, pendingSync, peerStates).start()
+            }
+        }
+
+        // Server-accepted connections: route incoming bytes into a server-side
+        // connection and start a sync session on it (the passive peer).
         gattServer.onIncoming = { device, bytes ->
-            val message = runCatching { MessageCodec.decode(bytes) }.getOrNull()
-            val localPeerId = kotlinx.coroutines.runBlocking { users.getCurrentUser()?.userId }
-            if (message is SyncMessage.Hello && localPeerId != null) {
-                val reply = MessageCodec.encode(SyncMessage.Hello(protocolVersion = 1, peerId = localPeerId))
-                val ok = gattServer.sendTo(device, reply)
-                android.util.Log.i("AppContainer", "replied HELLO to ${device.address} ok=$ok")
+            val serverConn = serverConnections.getOrPut(device.address) {
+                BleGattServerConnection(gattServer, device).also { conn ->
+                    appScope.launch {
+                        val localId = users.getCurrentUser()?.userId ?: return@launch
+                        SyncSession(localId, conn, posts, pendingSync, peerStates).start()
+                    }
+                }
+            }
+            serverConn.onBytes(bytes)
+        }
+
+        gattServer.onClientDisconnected = { device ->
+            serverConnections.remove(device.address)?.let {
+                Log.i(TAG, "cleaned up server connection for ${device.address}")
             }
         }
     }
 
     suspend fun currentPeerId(): UUID? = users.getCurrentUser()?.userId
+
+    private fun <T> runBlockingOnIo(block: suspend () -> T): T =
+        kotlinx.coroutines.runBlocking { block() }
 }

@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothGattServer
 import android.bluetooth.BluetoothGattServerCallback
 import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
 import android.util.Log
@@ -63,6 +64,9 @@ class BleGattServer(context: Context) {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             Log.i(TAG, "server connection state ${device.address}: $newState")
+            if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                onClientDisconnected?.invoke(device)
+            }
         }
     }
 
@@ -91,6 +95,9 @@ class BleGattServer(context: Context) {
 
     /** Called for every complete payload received on RX, with the sending device. */
     var onIncoming: ((BluetoothDevice, ByteArray) -> Unit)? = null
+
+    /** Called when a connected client disconnects. */
+    var onClientDisconnected: ((BluetoothDevice) -> Unit)? = null
 
     @SuppressLint("MissingPermission")
     fun start(): Boolean {
