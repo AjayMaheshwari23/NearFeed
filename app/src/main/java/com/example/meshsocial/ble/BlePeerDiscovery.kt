@@ -11,6 +11,7 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.ParcelUuid
+import android.util.Log
 import com.example.meshsocial.discovery.PeerCandidate
 import com.example.meshsocial.discovery.PeerDiscovery
 import kotlinx.coroutines.flow.Flow
@@ -22,6 +23,10 @@ import java.time.Instant
  * Caller must ensure runtime Bluetooth permissions are granted.
  */
 class BlePeerDiscovery(context: Context) : PeerDiscovery {
+    companion object {
+        private const val TAG = "BlePeerDiscovery"
+    }
+
     private val manager = context.getSystemService(BluetoothManager::class.java)
     private val adapter get() = manager.adapter
     private val scanner get() = adapter?.bluetoothLeScanner
@@ -35,6 +40,16 @@ class BlePeerDiscovery(context: Context) : PeerDiscovery {
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            val uuids = result.scanRecord?.serviceUuids.orEmpty()
+            // Filter in-app instead of via ScanFilter: APCF (hardware) filtering of the
+            // service UUID is unreliable in the emulated BLE radio, so the filter would
+            // silently drop every result during emulator testing.
+            if (uuids.none { it.uuid == MeshGattUuids.SERVICE }) return
+            Log.i(
+                TAG,
+                "FOUND PEER device=${result.device.address} rssi=${result.rssi} " +
+                    "serviceUuids=${result.scanRecord?.serviceUuids}"
+            )
             _peers.tryEmit(
                 PeerCandidate(
                     candidateId = result.device.address,
@@ -55,11 +70,12 @@ class BlePeerDiscovery(context: Context) : PeerDiscovery {
         val localAdvertiser = advertiser ?: return
 
         val service = ParcelUuid(MeshGattUuids.SERVICE)
-        val filter = ScanFilter.Builder().setServiceUuid(service).build()
+        // No hardware ScanFilter: the emulated BLE radio drops filtered results, and
+        // service-UUID matching happens in onScanResult above.
         val scanSettings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .build()
-        localScanner.startScan(listOf(filter), scanSettings, scanCallback)
+        localScanner.startScan(emptyList(), scanSettings, scanCallback)
 
         val advertiseSettings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
