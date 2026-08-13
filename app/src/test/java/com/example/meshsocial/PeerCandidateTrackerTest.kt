@@ -5,6 +5,7 @@ import com.example.meshsocial.discovery.PeerCandidateTracker
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.Instant
+import java.util.UUID
 
 class PeerCandidateTrackerTest {
     private val now = Instant.parse("2026-08-12T00:00:00Z")
@@ -18,6 +19,20 @@ class PeerCandidateTrackerTest {
         assertEquals(1, afterSecondRead.size)
         assertEquals(-60, afterSecondRead.single().rssi)
         assertEquals(now.plusSeconds(1), afterSecondRead.single().discoveredAt)
+    }
+
+    @Test
+    fun dedupesByPeerIdAcrossChangingMacs() {
+        val peerId = UUID.randomUUID()
+        val tracker = PeerCandidateTracker()
+        tracker.onCandidate(PeerCandidate("MAC1", knownPeerId = peerId, rssi = -70, discoveredAt = now))
+        val afterNewMac = tracker.onCandidate(
+            PeerCandidate("MAC2", knownPeerId = peerId, rssi = -55, discoveredAt = now.plusSeconds(30))
+        )
+
+        assertEquals(1, afterNewMac.size)
+        assertEquals("MAC2", afterNewMac.single().candidateId)
+        assertEquals(peerId, afterNewMac.single().knownPeerId)
     }
 
     @Test

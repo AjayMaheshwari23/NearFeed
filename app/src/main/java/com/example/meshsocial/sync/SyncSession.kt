@@ -66,12 +66,10 @@ class SyncSession(
                     connection.send(SyncMessage.Inventory(sessionId, ids))
                 }
             }
-            Log.i(TAG, "collector: starting on ${Thread.currentThread().name}")
             connection.incomingMessages.collect { message ->
                 handle(message, now)
             }
-        }
-    }
+        }    }
 
     suspend fun handle(message: SyncMessage, now: Instant = Instant.now()) {
         when (message) {
