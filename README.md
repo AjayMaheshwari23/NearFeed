@@ -62,72 +62,17 @@ without any server or internet connection.
 
 ![HLD](docs/design_04.png)
 
-```text
-┌──────────────────────────────────────────┐
-│           Android Application            │
-│  ┌────────────────────────────────────┐  │
-│  │ UI                                 │  │
-│  │  - Home Feed                       │  │
-│  │  - Create post                     │  │
-│  └────────────────────────────────────┘  │
-│  ┌──────────────┐    ┌─────────────────┐ │
-│  │ Storage Layer│<-->│ Sync Engine     │ │
-│  │ - store posts│    │ - sync data     │ │
-│  │ - delete ttl │    │ - maintain conns│ │
-│  └──────────────┘    └────────┬────────┘ │
-│                               │          │
-│  ┌────────────────────────────▼────────┐ │
-│  │ Network Layer                       │ │
-│  │ - Bluetooth                         │ │
-│  └─────────────────────────────────────┘ │
-└──────────────────────────────────────────┘
-```
-
 ---
 
 ## 2. Data modelling
 
 ![Data modelling](docs/design_05.png)
 
-```text
-Post
-  post_id      UUID
-  content      String
-  created_at   Timestamp
-  expires_at   Timestamp
-  author_id    User_id
-
-User
-  user_id      UUID
-  user_name    String
-  onboarded_on Timestamp
-
-PeerState
-  peer_id                    UUID
-  last_successful_sync_at    Timestamp
-  last_seen_at               Timestamp
-
-PendingSyncItem
-  peer_id     UUID
-  post_id     UUID
-  state       Enum (PENDING | DONE)
-  direction   Enum (RECEIVE | SEND)
-```
-
 ---
 
 ## 3. Sync protocol
 
 ![Sync protocol](docs/design_07.png)
-
-```text
-Hello(protocolVersion, peerId)
-Inventory(sessionId, postIds)
-RequestPosts(sessionId, postIds)
-PostBatch(sessionId, batchId, posts)
-Ack(sessionId, batchId)
-SyncComplete(sessionId)
-```
 
 Reconnection invariant: resume persisted pending work first, then exchange a
 **fresh inventory** and diff against the current Post table. Insert durably,
@@ -141,44 +86,11 @@ truth — it would go stale as devices independently meet others.
 
 ![Discovery + Connection LLD](docs/design_06.png)
 
-```text
-ConnectionController          PeerDiscovery            DataTransfer
-- shouldConnect()             - startDiscovery()       - sendData()
-- onConnect(peer)             - stopDiscovery()        - receiveData()
-- onDisconnect(peer)          - discoveredPeers        - packets
-
-topologyCoordinator           PeerConnect
-- selectPeers(peers)          - connect(peer)
-                              - disconnect(peer)
-```
-
 ---
 
 ## 5. Connection topology algorithm
 
 ![Connection topology algorithm](docs/design_08.png)
-
-```text
-selectPeers(candidates, K):
-1. Remove:
-   - self
-   - already-connected peers
-   - already-connecting peers
-   - incompatible protocol versions
-   - peers in short failure cooldown
-   - unusably weak peers
-2. Partition candidates:
-   P0 = peers with pending sync
-   P1 = peers never synced
-   P2 = previously synced peers
-3. Sort:
-   P0 -> oldest pending work first
-   P1 -> oldest discovered/attempted first
-   P2 -> oldest successful sync first
-4. Add small randomness for ties.
-5. Select at most K peers.
-6. Start sync sessions.
-```
 
 Selection strategy: `p0` unfinished sync, `p1` never synced, `p2` least recently
 synced, `p3` random tie-break.
