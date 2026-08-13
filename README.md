@@ -1,102 +1,211 @@
 # MeshSocialStarter
 
-A Phase-1 starter for the offline-first social feed HLD/LLD we designed.
-
-## What is already implemented
-
-- Native Android / Kotlin / Jetpack Compose shell.
-- Local UUID profile (`User`).
-- Local posts (`Post`) with UUID `post_id`.
-- Room persistence.
-- Best-effort 20-post rolling 24-hour quota.
-- 24-hour post TTL and periodic cleanup.
-- Persisted `PeerState`.
-- Persisted normalized `PendingSyncItem` (not a `List<PostId>` embedded in `PeerState`).
-- Working in-memory pairwise anti-entropy synchronizer.
-- Simulated connection interruption through a transfer budget.
-- Resume pending work first, then perform a **fresh inventory diff**.
-- Idempotent post insertion through unique `post_id`.
-- `TopologyPolicy` implementing the whiteboard priority strategy.
-- `ConnectionCoordinator`, `PeerDiscovery`, `PeerConnector`, and `PeerConnection` boundaries.
-- BLE scan/advertise adapter (`BlePeerDiscovery`) and custom GATT UUID constants.
-- Unit tests for interrupted/resumed convergence and topology priority.
-
-## Deliberately NOT implemented yet
-
-The BLE **GATT data channel** is intentionally the next milestone. Specifically:
-
-1. `BluetoothGattServer` exposing `SERVICE/RX/TX`.
-2. `BluetoothDevice.connectGatt()` client.
-3. Service discovery + notification subscription.
-4. `BlePeerConnection : PeerConnection`.
-5. `MessageCodec` (`SyncMessage <-> ByteArray`).
-6. Message framing/chunking and a send queue.
-7. Wire `SyncSession` to `ConnectionCoordinator`.
-8. Runtime permission UI for BLE (manifest declarations already exist).
-9. Background/foreground-service behavior.
-
-This ordering matters: first prove replica convergence independent of the radio, then make BLE only a transport.
+An offline-first, Bluetooth P2P social feed for Android. Two nearby devices
+discover each other over BLE, connect via GATT, and converge their post feeds
+without any server or internet connection.
 
 ---
 
-## Open in Android Studio
+## Requirements
 
-This bundle contains the project Gradle files but intentionally does **not** ship a Gradle wrapper JAR.
+![Requirements](docs/design_01.png)
 
-### Recommended path (least brittle)
+### Functional requirements
 
-1. In your current Android Studio, create **New Project -> Empty Activity**.
-2. Name it `MeshSocialStarter`.
-3. Package: `com.example.meshsocial`.
-4. Minimum SDK: **26**.
-5. Close the generated project.
-6. Copy/replace this bundle's `app/src/` into the generated project.
-7. Merge the dependencies from this bundle's `app/build.gradle.kts` into the generated project's app Gradle file.
-8. Add the Room/KSP configuration shown in this bundle.
-9. Sync Gradle and run.
+- Local identity/profile: display name + identity.
+- Create text post.
+- 20-post/day best-effort quota.
+- Featured/home feed showing valid posts.
+- Nearby peer discovery.
+- Pairwise data synchronization.
+- 24-hour TTL.
+- Sync/debug screen showing peers, last sync, records sent/received, and protocol state.
 
-### Direct import
+### Non-functional requirements
 
-You can also open this directory directly. It is authored against:
-
-- AGP `9.3.1`
-- Gradle `9.5.0`
-- Kotlin / Compose compiler plugin `2.3.21`
-- KSP `2.3.9`
-- Compose BOM `2026.06.01`
-- Room `2.8.4`
-- compile/target SDK `37`
-- JDK `17`
-
-If your installed Android Studio template generated slightly newer versions, prefer the versions Android Studio generated and keep the **source code** from this bundle.
+- Eventual convergence after partitions reconnect.
+- Offline operation with airplane-mode-friendly local communication where device radios permit it.
+- Repeated synchronization must be idempotent and must not create duplicate posts.
 
 ---
 
-## First run
+## Constraints / Assumptions
 
-1. Run the app on one phone/emulator.
-2. Create a profile.
-3. Create posts and restart the app: posts should survive.
-4. Open **Debug**.
-5. Press **Run interrupted/resumed sync demo**.
-6. The log should show:
-   - A and B start with different replicas.
-   - Round 1 transfers only one post per direction and leaves pending work.
-   - Round 2 resumes pending work.
-   - A fresh inventory diff runs again.
-   - both replicas converge.
+![Constraints / Assumptions](docs/design_02.png)
 
-Run unit tests too:
+| Constraint | Value | | Back-of-the-envelope | Value |
+|---|---|---|---|---|
+| Maximum users | ≈ 300 | | Maximum posts/day | ≈ 6,000 |
+| Posts/user/day | ≤ 20 | | Maximum post size | ≈ 100 words (~400 bytes) |
+| Maximum posts/day | ≈ 6,000 | | Maximum data/day | ≈ 6,000 × 400 ≈ 2.4 MB |
+| Retention | 24 hours | | | |
+| Internet | not required | | | |
+| Central server | none for core sync | | | |
+| Consistency | eventual | | | |
+| Communication | nearby P2P | | | |
 
-```bash
-./gradlew test
+---
+
+## Problems to be solved
+
+![Problems to be solved](docs/design_03.png)
+
+1. High-level view of the application.
+2. Storage protocol + data modelling.
+3. Sync protocol.
+4. Discovery + connection protocol.
+5. Connection topology (one-to-all or what?).
+
+---
+
+## 1. High-level design (HLD)
+
+![HLD](docs/design_04.png)
+
+```text
+┌──────────────────────────────────────────┐
+│           Android Application            │
+│  ┌────────────────────────────────────┐  │
+│  │ UI                                 │  │
+│  │  - Home Feed                       │  │
+│  │  - Create post                     │  │
+│  └────────────────────────────────────┘  │
+│  ┌──────────────┐    ┌─────────────────┐ │
+│  │ Storage Layer│<-->│ Sync Engine     │ │
+│  │ - store posts│    │ - sync data     │ │
+│  │ - delete ttl │    │ - maintain conns│ │
+│  └──────────────┘    └────────┬────────┘ │
+│                               │          │
+│  ┌────────────────────────────▼────────┐ │
+│  │ Network Layer                       │ │
+│  │ - Bluetooth                         │ │
+│  └─────────────────────────────────────┘ │
+└──────────────────────────────────────────┘
 ```
 
-(or use Android Studio's test gutter icons if you created a fresh project and do not yet have a wrapper).
+---
+
+## 2. Data modelling
+
+![Data modelling](docs/design_05.png)
+
+```text
+Post
+  post_id      UUID
+  content      String
+  created_at   Timestamp
+  expires_at   Timestamp
+  author_id    User_id
+
+User
+  user_id      UUID
+  user_name    String
+  onboarded_on Timestamp
+
+PeerState
+  peer_id                    UUID
+  last_successful_sync_at    Timestamp
+  last_seen_at               Timestamp
+
+PendingSyncItem
+  peer_id     UUID
+  post_id     UUID
+  state       Enum (PENDING | DONE)
+  direction   Enum (RECEIVE | SEND)
+```
 
 ---
 
-## Code map back to your HLD/LLD
+## 3. Sync protocol
+
+![Sync protocol](docs/design_07.png)
+
+```text
+Hello(protocolVersion, peerId)
+Inventory(sessionId, postIds)
+RequestPosts(sessionId, postIds)
+PostBatch(sessionId, batchId, posts)
+Ack(sessionId, batchId)
+SyncComplete(sessionId)
+```
+
+Reconnection invariant: resume persisted pending work first, then exchange a
+**fresh inventory** and diff against the current Post table. Insert durably,
+remove the pending record, and only mark successful reconciliation when pending
+work is empty. We do **not** persist a `posts_synced[B]` list as the source of
+truth — it would go stale as devices independently meet others.
+
+---
+
+## 4. Discovery + connection (LLD)
+
+![Discovery + Connection LLD](docs/design_06.png)
+
+```text
+ConnectionController          PeerDiscovery            DataTransfer
+- shouldConnect()             - startDiscovery()       - sendData()
+- onConnect(peer)             - stopDiscovery()        - receiveData()
+- onDisconnect(peer)          - discoveredPeers        - packets
+
+topologyCoordinator           PeerConnect
+- selectPeers(peers)          - connect(peer)
+                              - disconnect(peer)
+```
+
+---
+
+## 5. Connection topology algorithm
+
+![Connection topology algorithm](docs/design_08.png)
+
+```text
+selectPeers(candidates, K):
+1. Remove:
+   - self
+   - already-connected peers
+   - already-connecting peers
+   - incompatible protocol versions
+   - peers in short failure cooldown
+   - unusably weak peers
+2. Partition candidates:
+   P0 = peers with pending sync
+   P1 = peers never synced
+   P2 = previously synced peers
+3. Sort:
+   P0 -> oldest pending work first
+   P1 -> oldest discovered/attempted first
+   P2 -> oldest successful sync first
+4. Add small randomness for ties.
+5. Select at most K peers.
+6. Start sync sessions.
+```
+
+Selection strategy: `p0` unfinished sync, `p1` never synced, `p2` least recently
+synced, `p3` random tie-break.
+
+---
+
+## What is implemented
+
+- Native Android / Kotlin / Jetpack Compose shell.
+- Local UUID profile (`User`) and posts (`Post`) with UUID `post_id`, Room persistence.
+- Best-effort 20-post rolling 24-hour quota; 24-hour TTL with periodic cleanup.
+- Persisted `PeerState` and normalized `PendingSyncItem`.
+- In-memory pairwise anti-entropy synchronizer (`PairwiseAntiEntropySynchronizer`) with resumable interrupted convergence.
+- Nearby peer discovery over BLE scan/advertise (`BlePeerDiscovery`) with the stable peer UUID carried in manufacturer data.
+- Connection topology (`DefaultTopologyPolicy`) + `ConnectionCoordinator` (P0/P1/P2, cooldown, collision rule).
+- BLE GATT client + server (`BlePeerConnection`, `BleGattServer`, `BleGattServerConnection`), MTU negotiation, HELLO handshake.
+- Binary `MessageCodec` for all `SyncMessage` types.
+- `SyncSession` driving Inventory / RequestPosts / PostBatch / Ack / SyncComplete over the GATT link.
+- Unit tests for topology, codec, tracker, and the in-memory synchronizer.
+
+Verified end-to-end on two emulators: discovery → top-K selection → single
+initiator → GATT connect → HELLO → full post convergence (both devices hold the
+same posts).
+
+---
+
+## Code map (HLD/LLD box → code)
 
 ```text
 HLD / LLD box                  Code
@@ -107,97 +216,71 @@ PeerState                      domain/model + Room entity/DAO
 PendingSyncItem                domain/model + Room entity/DAO
 Sync Engine                    sync/PairwiseAntiEntropySynchronizer
 Sync protocol                  protocol/SyncMessage.kt
-SyncSession                    sync/SyncSession.kt (Phase-2 skeleton)
+Message codec                  protocol/MessageCodec.kt
+SyncSession                    sync/SyncSession.kt
 Peer Discovery                 discovery/PeerDiscovery.kt
 BLE discovery                  ble/BlePeerDiscovery.kt
 Topology Coordinator/Policy    topology/TopologyPolicy.kt
 Connection Coordinator         connection/ConnectionCoordinator.kt
-Peer Connector                 connection/PeerConnector.kt
-Peer Connection                connection/PeerConnection.kt
-BLE GATT                       NEXT MILESTONE
+Peer Connector                 connection/PeerConnector.kt → ble/BleGattConnector.kt
+Peer Connection                connection/PeerConnection.kt → ble/BlePeerConnection.kt + ble/BleGattServerConnection.kt
+BLE GATT server                ble/BleGattServer.kt
 ```
 
 ---
 
-## Important design invariant encoded in this starter
+## First run
 
-When A reconnects to B:
+1. Run the app on one phone/emulator.
+2. Create a profile.
+3. Create posts and restart the app: posts should survive.
+4. Open **Debug**.
+5. Press **Run interrupted/resumed sync demo**.
 
-```text
-1. Resume persisted pending work for B.
-2. Exchange/fetch a FRESH inventory.
-3. Compare B's CURRENT inventory against A's CURRENT Post table.
-4. Add new missing IDs to PendingSyncItem.
-5. Transfer.
-6. Insert post durably.
-7. Remove pending record.
-8. Mark successful reconciliation only when pending work is empty.
+Run unit tests:
+
+```bash
+./gradlew testDebugUnitTest
 ```
-
-We do **not** persist a giant `posts_synced[B]` list as the source of truth. It would become stale as A and B independently meet other devices.
 
 ---
 
-## Next implementation milestone: BLE GATT
+## Two-emulator demo (BLE sync)
 
-Implement these classes next:
+The Android emulator supports BLE via netsim (API 31+). Two emulators on the
+same host share one virtual radio:
 
-```text
-ble/BleGattServer
-ble/BleGattConnector : PeerConnector
-ble/BlePeerConnection : PeerConnection
-protocol/MessageCodec
-protocol/FrameCodec
+```bash
+# launch two AVDs (second launched after the first so they share netsimd)
+emulator @Pixel_7_API_36   &
+emulator @Pixel_7_API_36_B -netsim-args --rssi=ble:-65 &
+
+# install on both
+./gradlew installDebug
+
+# grant BLE permissions
+adb shell pm grant com.example.meshsocial android.permission.BLUETOOTH_SCAN
+adb shell pm grant com.example.meshsocial android.permission.BLUETOOTH_ADVERTISE
+adb shell pm grant com.example.meshsocial android.permission.BLUETOOTH_CONNECT
 ```
 
-Target runtime flow:
-
-```text
-BLE advertisement
-      ↓
-scan result
-      ↓
-PeerCandidate
-      ↓
-TopologyPolicy
-      ↓
-ConnectionCoordinator
-      ↓
-connectGatt()
-      ↓
-discover MeshSocial GATT service
-      ↓
-enable TX notifications
-      ↓
-HELLO peer UUID
-      ↓
-PeerConnection READY
-      ↓
-SyncSession
-      ↓
-Inventory / RequestPosts / PostBatch / Ack
-```
-
-Start with `MAX_ACTIVE_SYNCS = 1`. Increase to 2-3 only after the two-device path is reliable.
+Then on each: **Nearby → Scan for nearby devices**, wait for the scan window to
+close, and posts converge.
 
 ---
 
 ## Known V1 simplifications
 
 - One app installation is treated as one user/peer for now.
-- User profile replication is not implemented yet; remote posts can be rendered with short author UUIDs.
+- User profile replication is not implemented; remote posts render with short author UUIDs.
 - Feed ordering uses local wall-clock `createdAt`; clock-skew handling/HLC is later work.
 - Strict global 20-post quota is not possible in a disconnected multi-device identity model; V1 enforces locally.
-- BLE advertisements currently identify the protocol service, while the full peer UUID is intended to be learned in the HELLO handshake. A compact stable discovery hint can be added later.
 - No cryptographic authorship verification in V1.
+- Message framing/chunking (`FrameCodec`) for large payloads is not yet implemented (each message is a single write).
 
-## Suggested commits from here
+## Next steps
 
-1. `feat: run local profile and feed starter`
-2. `test: prove interrupted anti-entropy sync resumes`
-3. `feat: request nearby-device runtime permissions`
-4. `feat: expose BLE GATT server service`
-5. `feat: implement GATT client connection`
-6. `feat: implement message codec and framing`
-7. `feat: run SyncSession over BLE`
-8. `feat: wire automatic topology rotation`
+1. Background/foreground-service behavior so sync runs without the app in the foreground.
+2. `FrameCodec` for messages larger than the negotiated ATT MTU.
+3. Automatic topology rotation (disconnect after reconciliation, rotate through peers).
+4. Sync/debug screen surfacing live peers, last sync, records sent/received, and protocol state.
