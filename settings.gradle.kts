@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MeshSocialStarter"
+rootProject.name = "NEAR-FEED"
 include(":app")

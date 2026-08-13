@@ -2,7 +2,7 @@ package com.example.meshsocial
 
 import android.app.Application
 
-class MeshSocialApplication : Application() {
+class NearFeedApplication : Application() {
     lateinit var container: AppContainer
         private set
 

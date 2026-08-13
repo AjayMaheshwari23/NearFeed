@@ -1,4 +1,4 @@
-# MeshSocialStarter
+# NEAR-FEED
 
 An offline-first, Bluetooth P2P social feed for Android. Two nearby devices
 discover each other over BLE, connect via GATT, and converge their post feeds

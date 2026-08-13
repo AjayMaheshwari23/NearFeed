@@ -26,9 +26,9 @@
         android:maxSdkVersion="30" />
 
     <application
-        android:name=".MeshSocialApplication"
+        android:name=".NearFeedApplication"
         android:allowBackup="true"
-        android:label="Mesh Social Starter"
+        android:label="NEAR-FEED"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 

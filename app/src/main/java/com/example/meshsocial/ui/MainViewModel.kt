@@ -5,7 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.meshsocial.MeshSocialApplication
+import com.example.meshsocial.NearFeedApplication
 import com.example.meshsocial.discovery.SUPPORTED_PROTOCOL_VERSION
 import com.example.meshsocial.discovery.PeerCandidate
 import com.example.meshsocial.discovery.PeerCandidateTracker
@@ -30,7 +30,7 @@ import java.time.Instant
 import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val container = (application as MeshSocialApplication).container
+    private val container = (application as NearFeedApplication).container
 
     private val _user = MutableStateFlow<User?>(null)
     val user: StateFlow<User?> = _user.asStateFlow()

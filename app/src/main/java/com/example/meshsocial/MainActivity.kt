@@ -7,7 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.meshsocial.ui.MainViewModel
-import com.example.meshsocial.ui.MeshSocialScreen
+import com.example.meshsocial.ui.NearFeedScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface {
                     val vm: MainViewModel = viewModel(factory = MainViewModel.Factory(application))
-                    MeshSocialScreen(vm)
+                    NearFeedScreen(vm)
                 }
             }
         }

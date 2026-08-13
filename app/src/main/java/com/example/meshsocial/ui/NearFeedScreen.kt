@@ -47,7 +47,7 @@ import java.util.UUID
 private enum class Tab { HOME, NEARBY, DEBUG }
 
 @Composable
-fun MeshSocialScreen(viewModel: MainViewModel) {
+fun NearFeedScreen(viewModel: MainViewModel) {
     val user by viewModel.user.collectAsStateWithLifecycle()
     val feed by viewModel.feed.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
@@ -75,7 +75,7 @@ fun MeshSocialScreen(viewModel: MainViewModel) {
                     .padding(padding)
                     .padding(16.dp),
             ) {
-                Text("Mesh Social", style = MaterialTheme.typography.headlineMedium)
+                Text("NEAR-FEED", style = MaterialTheme.typography.headlineMedium)
                 Text("Local user: ${user!!.displayName} • ${user!!.userId.toString().take(8)}")
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -186,7 +186,7 @@ private fun NearbyPeersTab(viewModel: MainViewModel) {
         // ── Header ──────────────────────────────────────────────
         item {
             Text("Nearby peer discovery", style = MaterialTheme.typography.titleLarge)
-            Text("BLE scan + advertise for other Mesh Social devices. Scans are time-bounded.")
+            Text("BLE scan + advertise for other NEAR-FEED devices. Scans are time-bounded.")
             Spacer(Modifier.height(12.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
