@@ -45,6 +45,11 @@ class BlePeerConnection(
     @Volatile
     override var remotePeerId: UUID? = null
 
+    /** Pre-bind the peer UUID from the advertisement (before HELLO completes). */
+    fun bindRemotePeerId(peerId: UUID) {
+        remotePeerId = peerId
+    }
+
     @Volatile
     private var ready = AtomicBoolean(false)
 
@@ -65,6 +70,9 @@ class BlePeerConnection(
                     Log.w(TAG, "DISCONNECTED from ${device.address}")
                     gatt.close()
                     this@BlePeerConnection.gatt = null
+                    // Signal listeners that this link is gone so the coordinator
+                    // can prune the active connection and free a sync slot.
+                    _incomingMessages.close()
                 }
             }
         }
@@ -126,6 +134,7 @@ class BlePeerConnection(
             value: ByteArray,
         ) {
             if (characteristic.uuid == MeshGattUuids.TX) {
+                Log.i(TAG, "RX notify ${value.size} bytes from ${device.address}")
                 val message = runCatching { MessageCodec.decode(value) }.getOrElse {
                     Log.w(TAG, "malformed message: ${it.message}")
                     return
@@ -134,7 +143,8 @@ class BlePeerConnection(
                     remotePeerId = message.peerId
                     Log.i(TAG, "HELLO from peer ${message.peerId}")
                 }
-                _incomingMessages.trySend(message)
+                val sent = _incomingMessages.trySend(message)
+                Log.i(TAG, "queued ${message.javaClass.simpleName} to channel ok=$sent (${device.address})")
             }
         }
     }

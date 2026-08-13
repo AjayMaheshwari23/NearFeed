@@ -11,6 +11,11 @@ import com.example.meshsocial.domain.model.PendingSyncItem
 import com.example.meshsocial.domain.model.SyncDirection
 import com.example.meshsocial.domain.model.SyncStatus
 import com.example.meshsocial.protocol.SyncMessage
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
@@ -32,19 +37,39 @@ class SyncSession(
     private val posts: PostRepository,
     private val pending: PendingSyncRepository,
     private val peerStates: PeerStateRepository,
+    private val onEvent: (String) -> Unit = {},
 ) {
     val sessionId: UUID = UUID.randomUUID()
 
     private var sentComplete = false
     private var receivedComplete = false
 
-    suspend fun start(now: Instant = Instant.now()) {
+    suspend fun start(
+        now: Instant = Instant.now(),
+        resyncInterval: Duration = Duration.ofSeconds(30),
+    ) {
         markAttempt(now)
         connection.send(SyncMessage.Hello(protocolVersion = 1, peerId = localPeerId))
         connection.send(SyncMessage.Inventory(sessionId, posts.activePostIds(now)))
         Log.i(TAG, "started session $sessionId with ${connection.remotePeerId?.toString()?.take(8)}")
-        connection.incomingMessages.collect { message ->
-            handle(message, now)
+        onEvent("sync session started with peer ${connection.remotePeerId?.toString()?.take(8)}")
+
+        // Persistent connection: keep re-exchanging inventory on a timer so posts
+        // created AFTER the initial sync still propagate, until the link drops.
+        coroutineScope {
+            launch {
+                while (isActive) {
+                    delay(resyncInterval.toMillis())
+                    val ids = posts.activePostIds(Instant.now())
+                    Log.i(TAG, "re-inventory: ${ids.size} post(s)")
+                    onEvent("re-inventory: ${ids.size} post(s)")
+                    connection.send(SyncMessage.Inventory(sessionId, ids))
+                }
+            }
+            Log.i(TAG, "collector: starting on ${Thread.currentThread().name}")
+            connection.incomingMessages.collect { message ->
+                handle(message, now)
+            }
         }
     }
 
@@ -62,6 +87,7 @@ class SyncSession(
                             posts = requested,
                         )
                     )
+                    onEvent("sent ${requested.size} post(s): ${requested.map { it.content.take(30) }}")
                 }
                 Log.i(TAG, "sent PostBatch (${requested.size} posts) to ${connection.remotePeerId?.toString()?.take(8)}")
             }
@@ -83,6 +109,7 @@ class SyncSession(
         val missing = message.postIds - local
         if (missing.isEmpty()) {
             Log.i(TAG, "nothing missing from ${remoteId.toString().take(8)}; sending SyncComplete")
+            onEvent("nothing missing from peer ${remoteId.toString().take(8)}")
             sendComplete(now)
             return
         }
@@ -98,6 +125,7 @@ class SyncSession(
             )
         })
         connection.send(SyncMessage.RequestPosts(message.sessionId, missing))
+        onEvent("requesting ${missing.size} missing post(s) from peer ${remoteId.toString().take(8)}: ${missing.map { it.toString().take(6) }}")
         Log.i(TAG, "requesting ${missing.size} missing post(s) from ${remoteId.toString().take(8)}")
     }
 
@@ -108,6 +136,7 @@ class SyncSession(
             message.posts.forEach { pending.remove(remoteId, it.postId, SyncDirection.RECEIVE) }
         }
         connection.send(SyncMessage.Ack(message.sessionId, message.batchId))
+        onEvent("inserted ${message.posts.size} post(s): ${message.posts.map { it.content.take(30) }}")
         Log.i(TAG, "inserted ${message.posts.size} post(s), acked ${message.batchId.toString().take(8)}")
 
         val remaining = remoteId?.let { pending.countForPeer(it) } ?: 0
@@ -127,6 +156,7 @@ class SyncSession(
         if (!sentComplete || !receivedComplete) return
         val remoteId = connection.remotePeerId ?: return
         Log.i(TAG, "session complete with ${remoteId.toString().take(8)}")
+        onEvent("sync complete with peer ${remoteId.toString().take(8)}")
         val old = peerStates.get(remoteId) ?: PeerState(remoteId)
         peerStates.save(old.copy(
             lastSeenAt = now,

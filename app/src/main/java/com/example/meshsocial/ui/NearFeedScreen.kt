@@ -25,7 +25,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -162,6 +161,8 @@ private fun NearbyPeersTab(viewModel: MainViewModel) {
     val scanning by viewModel.scanning.collectAsStateWithLifecycle()
     val connectionLog by viewModel.connectionLog.collectAsStateWithLifecycle()
     val connectedPeers by viewModel.connectedPeers.collectAsStateWithLifecycle()
+    val backgroundRunning by viewModel.backgroundRunning.collectAsStateWithLifecycle()
+    val syncEvents by viewModel.syncEvents.collectAsStateWithLifecycle()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -171,10 +172,6 @@ private fun NearbyPeersTab(viewModel: MainViewModel) {
         } else {
             viewModel.setMessage("Nearby device permission denied")
         }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { viewModel.stopDiscovery() }
     }
 
     val bleAvailable = context.packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)
@@ -225,6 +222,24 @@ private fun NearbyPeersTab(viewModel: MainViewModel) {
             if (scanning) {
                 Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        }
+
+        // ── Background loop status ─────────────────────────────
+        item {
+            Spacer(Modifier.height(8.dp))
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        if (backgroundRunning) "● Background sync RUNNING" else "○ Background sync stopped",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (backgroundRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    )
+                    Text(
+                        if (backgroundRunning) "Auto scan → top-K connect → sync, repeating" else "manual mode",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
 
@@ -284,6 +299,24 @@ private fun NearbyPeersTab(viewModel: MainViewModel) {
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.padding(horizontal = 4.dp),
                 )
+            }
+        }
+
+        // ── Sync events (posts transferred) ─────────────────────
+        if (syncEvents.isNotEmpty()) {
+            item {
+                Spacer(Modifier.height(12.dp))
+                Text("Sync events", style = MaterialTheme.typography.titleMedium)
+            }
+            items(syncEvents) { event ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        event,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(8.dp),
+                    )
+                }
             }
         }
     }

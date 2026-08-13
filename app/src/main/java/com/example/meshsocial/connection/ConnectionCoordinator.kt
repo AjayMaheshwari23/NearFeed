@@ -18,6 +18,9 @@ import java.util.UUID
  *   2. Mark the candidate as connecting, then connect via the [PeerConnector].
  *   3. On success the connection is tracked as active and handed to [onConnected].
  *   4. On failure the peer enters a short cooldown so it is not retried immediately.
+ *
+ * Each active connection is watched: when its incoming flow closes (link dropped),
+ * the connection is pruned so its sync slot is freed for future cycles.
  */
 class ConnectionCoordinator(
     private val topologyPolicy: TopologyPolicy,
@@ -42,6 +45,15 @@ class ConnectionCoordinator(
         candidates: List<PeerCandidate>,
         baseContext: TopologyContext,
     ) {
+        // Emulators (and real devices) re-advertise under a fresh MAC each cycle,
+        // so the same physical peer can look like a new candidate. Deduplicate by
+        // the stable peer UUID before counting slots: if we already hold a live
+        // link to that peer, do not open another one.
+        val activePeerIds = active.values.mapNotNull { it.remotePeerId }.toSet()
+        val candidatesAfterDedup = candidates.filter { candidate ->
+            candidate.knownPeerId == null || candidate.knownPeerId !in activePeerIds
+        }
+
         val slots = (maxActiveSyncs - active.size - connecting.size).coerceAtLeast(0)
         if (slots == 0) return
 
@@ -50,8 +62,8 @@ class ConnectionCoordinator(
             connectingCandidateIds = connecting,
             failureCooldownUntil = cooldownUntil,
         )
-        val selected = topologyPolicy.selectPeers(candidates, context, slots)
-        Log.i(TAG, "Topology selected ${selected.size} of ${candidates.size} candidates")
+        val selected = topologyPolicy.selectPeers(candidatesAfterDedup, context, slots)
+        Log.i(TAG, "Topology selected ${selected.size} of ${candidates.size} candidates (dedup'd ${candidates.size - candidatesAfterDedup.size})")
 
         for (candidate in selected) {
             // Collision rule: if the connector designates this device as the passive
@@ -77,6 +89,17 @@ class ConnectionCoordinator(
                 connecting -= candidate.candidateId
             }
         }
+    }
+
+    /**
+     * Called by the session owner when the connection's message flow terminates
+     * (link dropped / channel closed). Prunes the active link so its sync slot
+     * is freed for future cycles.
+     */
+    suspend fun onLinkClosed(connection: PeerConnection) {
+        val candidateId = active.entries.firstOrNull { it.value === connection }?.key ?: return
+        active.remove(candidateId)?.close()
+        Log.i(TAG, "Link closed for $candidateId; freed sync slot (active=${active.size})")
     }
 
     suspend fun onDisconnected(candidateId: String) {

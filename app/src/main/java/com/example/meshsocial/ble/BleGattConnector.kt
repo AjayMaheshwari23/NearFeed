@@ -47,6 +47,9 @@ class BleGattConnector(
         val adapter = manager.adapter ?: throw IllegalStateException("bluetooth unavailable")
         val device = adapter.getRemoteDevice(peer.candidateId)
         val connection = BlePeerConnection(appContext, device, local)
+        // Bind the peer UUID immediately from the advertisement so dedup/cooldown
+        // work before the HELLO handshake completes.
+        peer.knownPeerId?.let { connection.bindRemotePeerId(it) }
         val ready = connection.connect()
         if (!ready) {
             throw IllegalStateException("connect timeout for ${peer.candidateId}")

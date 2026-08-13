@@ -56,8 +56,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _connectedPeers = MutableStateFlow<List<UUID>>(emptyList())
     val connectedPeers: StateFlow<List<UUID>> = _connectedPeers.asStateFlow()
 
+    private val _syncEvents = MutableStateFlow<List<String>>(emptyList())
+    val syncEvents: StateFlow<List<String>> = _syncEvents.asStateFlow()
+
+    private val _backgroundRunning = MutableStateFlow(false)
+    val backgroundRunning: StateFlow<Boolean> = _backgroundRunning.asStateFlow()
+
     private val candidateTracker = PeerCandidateTracker()
     private var scanWindowJob: Job? = null
+    private var backgroundJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -66,6 +73,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (user != null) {
                     logConnection("GATT server start (${user.userId.toString().take(8)})")
                     container.gattServer.start()
+                    startBackgroundSync()
                 }
             }
         }
@@ -80,6 +88,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
+            container.syncEvents.collect { event ->
+                _syncEvents.value = (_syncEvents.value + event).takeLast(200)
+            }
+        }
+        viewModelScope.launch {
             while (true) {
                 container.posts.deleteExpired(Instant.now())
                 delay(60_000)
@@ -87,8 +100,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Continuous background loop: advertise+scan, reconcile top-K, then idle
+     * briefly and repeat. Persistent connections stay open across cycles; the
+     * topology policy skips already-active peers so we do not double-connect.
+     */
+    fun startBackgroundSync(
+        scanWindowSeconds: Long = 20,
+        idleGapSeconds: Long = 10,
+    ) {
+        if (backgroundJob != null) return
+        _backgroundRunning.value = true
+        backgroundJob = viewModelScope.launch {
+            while (true) {
+                _scanning.value = true
+                container.peerDiscovery.startDiscovery()
+                logConnection("BG cycle: scanning ${scanWindowSeconds}s")
+                delay(Duration.ofSeconds(scanWindowSeconds).toMillis())
+                container.peerDiscovery.stopDiscovery()
+                _scanning.value = false
+                logConnection("BG cycle: window closed, reconciling top-K")
+                reconcileConnections()
+                logConnection("BG cycle: idle ${idleGapSeconds}s")
+                delay(Duration.ofSeconds(idleGapSeconds).toMillis())
+            }
+        }
+    }
+
+    fun stopBackgroundSync() {
+        backgroundJob?.cancel()
+        backgroundJob = null
+        _backgroundRunning.value = false
+        scanWindowJob?.cancel()
+        scanWindowJob = null
+        viewModelScope.launch {
+            container.peerDiscovery.stopDiscovery()
+            _scanning.value = false
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
+        backgroundJob?.cancel()
         container.gattServer.stop()
     }
 

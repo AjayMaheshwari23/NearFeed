@@ -20,6 +20,7 @@ import com.example.meshsocial.topology.DefaultTopologyPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -56,14 +57,25 @@ class AppContainer(context: Context) {
 
     val createPost = CreatePostUseCase(posts)
 
+    /** Dev/diagnostic events from sync sessions (posts requested/inserted, completions). */
+    val syncEvents = MutableSharedFlow<String>(extraBufferCapacity = 64)
+
     private val serverConnections = mutableMapOf<String, BleGattServerConnection>()
 
     init {
         // Client-initiated connections: start a sync session per established link.
         connectionCoordinator.onConnected = { connection ->
             appScope.launch {
-                val localId = users.getCurrentUser()?.userId ?: return@launch
-                SyncSession(localId, connection, posts, pendingSync, peerStates).start()
+                try {
+                    val localId = users.getCurrentUser()?.userId ?: return@launch
+                    SyncSession(
+                        localId, connection, posts, pendingSync, peerStates,
+                        onEvent = { syncEvents.tryEmit(it) },
+                    ).start()
+                } finally {
+                    // Session flow ended => link dropped; free the sync slot.
+                    connectionCoordinator.onLinkClosed(connection)
+                }
             }
         }
 
@@ -73,8 +85,15 @@ class AppContainer(context: Context) {
             val serverConn = serverConnections.getOrPut(device.address) {
                 BleGattServerConnection(gattServer, device).also { conn ->
                     appScope.launch {
-                        val localId = users.getCurrentUser()?.userId ?: return@launch
-                        SyncSession(localId, conn, posts, pendingSync, peerStates).start()
+                        try {
+                            val localId = users.getCurrentUser()?.userId ?: return@launch
+                            SyncSession(
+                                localId, conn, posts, pendingSync, peerStates,
+                                onEvent = { syncEvents.tryEmit(it) },
+                            ).start()
+                        } finally {
+                            connectionCoordinator.onLinkClosed(conn)
+                        }
                     }
                 }
             }
@@ -82,8 +101,9 @@ class AppContainer(context: Context) {
         }
 
         gattServer.onClientDisconnected = { device ->
-            serverConnections.remove(device.address)?.let {
+            serverConnections.remove(device.address)?.let { conn ->
                 Log.i(TAG, "cleaned up server connection for ${device.address}")
+                appScope.launch { conn.close() }
             }
         }
     }
