@@ -1,6 +1,6 @@
 package com.example.meshsocial.sync
 
-import android.util.Log
+
 import com.example.meshsocial.connection.PeerConnection
 import com.example.meshsocial.data.repository.PendingSyncRepository
 import com.example.meshsocial.data.repository.PeerStateRepository
@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
+import timber.log.Timber
 
 /**
  * Runs one anti-entropy exchange over a [PeerConnection].
@@ -51,7 +52,7 @@ class SyncSession(
         markAttempt(now)
         connection.send(SyncMessage.Hello(protocolVersion = 1, peerId = localPeerId))
         connection.send(SyncMessage.Inventory(sessionId, posts.activePostIds(now)))
-        Log.i(TAG, "started session $sessionId with ${connection.remotePeerId?.toString()?.take(8)}")
+        Timber.i("started session $sessionId with ${connection.remotePeerId?.toString()?.take(8)}")
         onEvent("sync session started with peer ${connection.remotePeerId?.toString()?.take(8)}")
 
         // Persistent connection: keep re-exchanging inventory on a timer so posts
@@ -61,7 +62,7 @@ class SyncSession(
                 while (isActive) {
                     delay(resyncInterval.toMillis())
                     val ids = posts.activePostIds(Instant.now())
-                    Log.i(TAG, "re-inventory: ${ids.size} post(s)")
+                    Timber.i("re-inventory: ${ids.size} post(s)")
                     onEvent("re-inventory: ${ids.size} post(s)")
                     connection.send(SyncMessage.Inventory(sessionId, ids))
                 }
@@ -87,7 +88,7 @@ class SyncSession(
                     )
                     onEvent("sent ${requested.size} post(s): ${requested.map { it.content.take(30) }}")
                 }
-                Log.i(TAG, "sent PostBatch (${requested.size} posts) to ${connection.remotePeerId?.toString()?.take(8)}")
+                Timber.i("sent PostBatch (${requested.size} posts) to ${connection.remotePeerId?.toString()?.take(8)}")
             }
             is SyncMessage.PostBatch -> onPostBatch(message, now)
             is SyncMessage.Ack -> Unit
@@ -100,13 +101,13 @@ class SyncSession(
 
     private suspend fun onInventory(message: SyncMessage.Inventory, now: Instant) {
         val remoteId = connection.remotePeerId ?: run {
-            Log.w(TAG, "inventory before peer identity known; ignoring")
+            Timber.w("inventory before peer identity known; ignoring")
             return
         }
         val local = posts.activePostIds(now)
         val missing = message.postIds - local
         if (missing.isEmpty()) {
-            Log.i(TAG, "nothing missing from ${remoteId.toString().take(8)}; sending SyncComplete")
+            Timber.i("nothing missing from ${remoteId.toString().take(8)}; sending SyncComplete")
             onEvent("nothing missing from peer ${remoteId.toString().take(8)}")
             sendComplete(now)
             return
@@ -124,7 +125,7 @@ class SyncSession(
         })
         connection.send(SyncMessage.RequestPosts(message.sessionId, missing))
         onEvent("requesting ${missing.size} missing post(s) from peer ${remoteId.toString().take(8)}: ${missing.map { it.toString().take(6) }}")
-        Log.i(TAG, "requesting ${missing.size} missing post(s) from ${remoteId.toString().take(8)}")
+        Timber.i("requesting ${missing.size} missing post(s) from ${remoteId.toString().take(8)}")
     }
 
     private suspend fun onPostBatch(message: SyncMessage.PostBatch, now: Instant) {
@@ -135,7 +136,7 @@ class SyncSession(
         }
         connection.send(SyncMessage.Ack(message.sessionId, message.batchId))
         onEvent("inserted ${message.posts.size} post(s): ${message.posts.map { it.content.take(30) }}")
-        Log.i(TAG, "inserted ${message.posts.size} post(s), acked ${message.batchId.toString().take(8)}")
+        Timber.i("inserted ${message.posts.size} post(s), acked ${message.batchId.toString().take(8)}")
 
         val remaining = remoteId?.let { pending.countForPeer(it) } ?: 0
         if (remaining == 0) {
@@ -153,7 +154,7 @@ class SyncSession(
     private suspend fun maybeComplete(now: Instant) {
         if (!sentComplete || !receivedComplete) return
         val remoteId = connection.remotePeerId ?: return
-        Log.i(TAG, "session complete with ${remoteId.toString().take(8)}")
+        Timber.i("session complete with ${remoteId.toString().take(8)}")
         onEvent("sync complete with peer ${remoteId.toString().take(8)}")
         val old = peerStates.get(remoteId) ?: PeerState(remoteId)
         peerStates.save(old.copy(
@@ -170,7 +171,4 @@ class SyncSession(
         peerStates.save(old.copy(lastSeenAt = now, lastAttemptAt = now))
     }
 
-    companion object {
-        private const val TAG = "SyncSession"
-    }
 }

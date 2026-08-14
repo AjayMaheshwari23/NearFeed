@@ -1,6 +1,9 @@
 package com.example.meshsocial.ui
 
+import android.bluetooth.BluetoothAdapter
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +42,8 @@ import com.example.meshsocial.ble.BlePermissions
 import com.example.meshsocial.discovery.PeerCandidate
 import com.example.meshsocial.domain.model.Post
 import com.example.meshsocial.domain.model.User
+import kotlinx.coroutines.delay
+import timber.log.Timber
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -47,11 +52,60 @@ private enum class Tab { HOME, NEARBY, DEBUG }
 
 @Composable
 fun NearFeedScreen(viewModel: MainViewModel) {
+    val context = LocalContext.current
     val user by viewModel.user.collectAsStateWithLifecycle()
     val feed by viewModel.feed.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val log by viewModel.debugLog.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+
+    // Auto-request BLE runtime permissions once a profile exists. Required on
+    // real devices where adb `pm grant` is OEM-blocked and the background loop
+    // cannot show the system dialog itself.
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { }
+    LaunchedEffect(user != null) {
+        if (user != null) {
+            val missing = BlePermissions.missing(context)
+            if (missing.isNotEmpty()) {
+                permissionLauncher.launch(missing.toTypedArray())
+            }
+        }
+    }
+
+    // If Bluetooth is off, offer the system "turn on Bluetooth" dialog. This is
+    // the mandatory gate: without the radio, scanning/advertising/connecting all
+    // fail silently (the #1 cause of "connect timeout" on real phones).
+    val enableBtLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { }
+
+    // Re-check readiness periodically so the banner clears the moment the user
+    // turns Bluetooth on or grants permissions.
+    var bleReady by remember { mutableStateOf(BlePermissions.isReady(context)) }
+    LaunchedEffect(user != null) {
+        while (user != null) {
+            bleReady = BlePermissions.isReady(context)
+            delay(2_000)
+        }
+    }
+    val openSettings = {
+        try {
+            enableBtLauncher.launch(
+                Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            )
+        } catch (e: Exception) {
+            // ACTION_REQUEST_ENABLE can fail on some OEMs; fall back to settings.
+            try {
+                enableBtLauncher.launch(
+                    Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+                )
+            } catch (e2: Exception) {
+                Timber.e("could not open bluetooth settings: ${e2.message}")
+            }
+        }
+    }
 
     LaunchedEffect(message) {
         message?.let {
@@ -77,6 +131,30 @@ fun NearFeedScreen(viewModel: MainViewModel) {
                 Text("NEAR-FEED", style = MaterialTheme.typography.headlineMedium)
                 Text("Local user: ${user!!.displayName} • ${user!!.userId.toString().take(8)}")
                 Spacer(Modifier.height(8.dp))
+                if (!bleReady) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                        ),
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            val missing = BlePermissions.missing(context)
+                            val btOn = BlePermissions.isBluetoothEnabled(context)
+                            Text(
+                                if (!btOn) "Bluetooth is OFF — sync cannot work"
+                                else "Missing permissions (${missing.size}) — sync cannot work",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Button(onClick = openSettings) {
+                                Text(if (!btOn) "Turn on Bluetooth" else "Grant permissions")
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { tab = Tab.HOME }) { Text("Home") }
                     Button(onClick = { tab = Tab.NEARBY }) { Text("Nearby") }

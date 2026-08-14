@@ -1,6 +1,7 @@
 package com.example.meshsocial.ble
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
@@ -9,7 +10,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
-import android.util.Log
+
 import com.example.meshsocial.discovery.PeerCandidate
 import com.example.meshsocial.discovery.PeerDiscovery
 import com.example.meshsocial.discovery.SUPPORTED_PROTOCOL_VERSION
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import java.nio.ByteBuffer
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import timber.log.Timber
 
 /**
  * BLE discovery adapter. It does NOT establish GATT connections yet.
@@ -31,7 +34,6 @@ class BlePeerDiscovery(
     private val localPeerId: () -> UUID?,
 ) : PeerDiscovery {
     companion object {
-        private const val TAG = "BlePeerDiscovery"
         private const val MANUFACTURER_ID = 0x4D53 // "MS" in ASCII
     }
 
@@ -43,7 +45,17 @@ class BlePeerDiscovery(
     private val _peers = MutableSharedFlow<PeerCandidate>(extraBufferCapacity = 64)
     override val discoveredPeers: Flow<PeerCandidate> = _peers
 
+    // Keep the actual BluetoothDevice from each scan result so a client connect
+    // can use the correct address type. Modern phones advertise with RANDOM
+    // (privacy) addresses; rebuilding via adapter.getRemoteDevice(mac) forces
+    // PUBLIC type and connectGatt fails silently on real hardware.
+    private val devicesByAddress = ConcurrentHashMap<String, BluetoothDevice>()
+
+    /** Resolve the real [BluetoothDevice] for a discovered address, if still cached. */
+    fun deviceFor(address: String): BluetoothDevice? = devicesByAddress[address]
+
     private var started = false
+    private var advertising = false
 
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
@@ -58,11 +70,11 @@ class BlePeerDiscovery(
             val protocolVersion = buffer.get().toInt()
             val peerId = UUID(buffer.long, buffer.long)
 
-            Log.i(
-                TAG,
+            Timber.i(
                 "FOUND PEER device=${result.device.address} rssi=${result.rssi} " +
                     "peerId=${peerId.toString().take(8)} proto=$protocolVersion"
             )
+            devicesByAddress[result.device.address] = result.device
             _peers.tryEmit(
                 PeerCandidate(
                     candidateId = result.device.address,
@@ -77,11 +89,11 @@ class BlePeerDiscovery(
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
-            Log.i(TAG, "advertising started")
+            Timber.i("advertising started")
         }
 
         override fun onStartFailure(errorCode: Int) {
-            Log.w(TAG, "advertising failed error=$errorCode")
+            Timber.w("advertising failed error=$errorCode")
         }
     }
 
@@ -89,17 +101,34 @@ class BlePeerDiscovery(
     override suspend fun startDiscovery() {
         if (started) return
         val localScanner = scanner ?: return
-        val localAdvertiser = advertiser ?: return
 
         // No hardware ScanFilter: the emulated BLE radio drops filtered results, and
         // mesh-peer matching happens in onScanResult (manufacturer data).
         val scanSettings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .build()
-        localScanner.startScan(emptyList(), scanSettings, scanCallback)
+        try {
+            localScanner.startScan(emptyList(), scanSettings, scanCallback)
+        } catch (e: SecurityException) {
+            Timber.w("startScan denied (missing BLUETOOTH_SCAN?): ${e.message}")
+            return
+        }
+        started = true
+        startAdvertising()
+    }
+
+    /**
+     * Start advertising so other devices can discover AND connect to us. Kept
+     * separate from scanning so the background loop can advertise continuously
+     * (a peer may try to connect at any moment, not just during our scan window).
+     */
+    @SuppressLint("MissingPermission")
+    override fun startAdvertising() {
+        if (advertising) return
+        val localAdvertiser = advertiser ?: return
 
         val advertiseSettings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
+            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setConnectable(true)
             .setTimeout(0)
             .build()
@@ -118,15 +147,22 @@ class BlePeerDiscovery(
                 .array()
             builder.addManufacturerData(MANUFACTURER_ID, payload)
         }
-        localAdvertiser.startAdvertising(advertiseSettings, builder.build(), advertiseCallback)
-        started = true
+        try {
+            localAdvertiser.startAdvertising(advertiseSettings, builder.build(), advertiseCallback)
+            advertising = true
+        } catch (e: SecurityException) {
+            Timber.w("startAdvertising denied (missing BLUETOOTH_ADVERTISE?): ${e.message}")
+        }
     }
 
     @SuppressLint("MissingPermission")
     override suspend fun stopDiscovery() {
         if (!started) return
-        scanner?.stopScan(scanCallback)
-        advertiser?.stopAdvertising(advertiseCallback)
+        try {
+            scanner?.stopScan(scanCallback)
+        } catch (e: SecurityException) {
+            Timber.w("stop denied: ${e.message}")
+        }
         started = false
     }
 }

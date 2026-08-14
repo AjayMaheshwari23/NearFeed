@@ -21,4 +21,6 @@ interface PeerDiscovery {
     val discoveredPeers: Flow<PeerCandidate>
     suspend fun startDiscovery()
     suspend fun stopDiscovery()
+    /** Start continuous advertising so peers can discover AND connect to us. */
+    fun startAdvertising()
 }

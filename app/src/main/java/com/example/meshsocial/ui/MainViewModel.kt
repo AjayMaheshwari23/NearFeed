@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.meshsocial.NearFeedApplication
+import com.example.meshsocial.ble.BlePermissions
 import com.example.meshsocial.discovery.SUPPORTED_PROTOCOL_VERSION
 import com.example.meshsocial.discovery.PeerCandidate
 import com.example.meshsocial.discovery.PeerCandidateTracker
@@ -73,6 +74,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (user != null) {
                     logConnection("GATT server start (${user.userId.toString().take(8)})")
                     container.gattServer.start()
+                    container.peerDiscovery.startAdvertising()
                     startBackgroundSync()
                 }
             }
@@ -104,6 +106,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Continuous background loop: advertise+scan, reconcile top-K, then idle
      * briefly and repeat. Persistent connections stay open across cycles; the
      * topology policy skips already-active peers so we do not double-connect.
+     *
+     * Gated on BLE readiness (permissions granted + Bluetooth radio on). If the
+     * phone is not ready (e.g. Bluetooth turned off), the loop waits and retries
+     * instead of silently failing to scan.
      */
     fun startBackgroundSync(
         scanWindowSeconds: Long = 20,
@@ -113,6 +119,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _backgroundRunning.value = true
         backgroundJob = viewModelScope.launch {
             while (true) {
+                if (!BlePermissions.isReady(getApplication())) {
+                    _scanning.value = false
+                    val missing = BlePermissions.missing(getApplication())
+                    val btOn = BlePermissions.isBluetoothEnabled(getApplication())
+                    logConnection(
+                        "BG cycle: WAITING — perms missing=${missing.size}, bluetooth=$btOn"
+                    )
+                    delay(Duration.ofSeconds(5).toMillis())
+                    continue
+                }
                 _scanning.value = true
                 container.peerDiscovery.startDiscovery()
                 logConnection("BG cycle: scanning ${scanWindowSeconds}s")

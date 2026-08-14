@@ -1,12 +1,14 @@
 package com.example.meshsocial.ble
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Context
-import android.util.Log
+
 import com.example.meshsocial.connection.PeerConnection
 import com.example.meshsocial.connection.PeerConnector
 import com.example.meshsocial.discovery.PeerCandidate
+import timber.log.Timber
 import java.util.UUID
 
 /**
@@ -24,6 +26,7 @@ import java.util.UUID
 class BleGattConnector(
     context: Context,
     private val localPeerId: suspend () -> UUID?,
+    private val deviceResolver: (String) -> BluetoothDevice? = { null },
 ) : PeerConnector {
     private val manager = context.getSystemService(BluetoothManager::class.java)
     private val appContext = context.applicationContext
@@ -44,8 +47,13 @@ class BleGattConnector(
             throw IllegalStateException("peer ${peer.candidateId} should initiate (collision rule)")
         }
         val local = localPeerId() ?: throw IllegalStateException("no local profile")
-        val adapter = manager.adapter ?: throw IllegalStateException("bluetooth unavailable")
-        val device = adapter.getRemoteDevice(peer.candidateId)
+        // Prefer the real BluetoothDevice from the scan result: it carries the
+        // correct address type (modern phones advertise with RANDOM privacy
+        // addresses). getRemoteDevice(mac) forces PUBLIC type and connectGatt
+        // fails silently on real hardware.
+        val device = deviceResolver(peer.candidateId)
+            ?: manager.adapter?.getRemoteDevice(peer.candidateId)
+            ?: throw IllegalStateException("no remote device for ${peer.candidateId}")
         val connection = BlePeerConnection(appContext, device, local)
         // Bind the peer UUID immediately from the advertisement so dedup/cooldown
         // work before the HELLO handshake completes.
@@ -54,11 +62,8 @@ class BleGattConnector(
         if (!ready) {
             throw IllegalStateException("connect timeout for ${peer.candidateId}")
         }
-        Log.i(TAG, "connection ready to ${peer.candidateId}")
+        Timber.i("connection ready to ${peer.candidateId}")
         return connection
     }
 
-    companion object {
-        private const val TAG = "BleGattConnector"
-    }
 }

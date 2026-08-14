@@ -1,13 +1,13 @@
 package com.example.meshsocial.ble
 
 import android.bluetooth.BluetoothDevice
-import android.util.Log
 import com.example.meshsocial.connection.PeerConnection
 import com.example.meshsocial.protocol.MessageCodec
 import com.example.meshsocial.protocol.SyncMessage
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
+import timber.log.Timber
 import java.util.UUID
 
 /**
@@ -36,7 +36,7 @@ class BleGattServerConnection(
     /** Feed a decoded byte payload received on RX. */
     fun onBytes(bytes: ByteArray) {
         val message = runCatching { MessageCodec.decode(bytes) }.getOrElse {
-            Log.w(TAG, "malformed server message: ${it.message}")
+            Timber.w("malformed server message: ${it.message}")
             return
         }
         if (message is SyncMessage.Hello) {
@@ -51,9 +51,5 @@ class BleGattServerConnection(
 
     override suspend fun close() {
         inbound.close()
-    }
-
-    companion object {
-        private const val TAG = "BleGattServerConnection"
     }
 }

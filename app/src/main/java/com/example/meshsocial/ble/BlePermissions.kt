@@ -1,6 +1,7 @@
 package com.example.meshsocial.ble
 
 import android.Manifest
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -29,4 +30,18 @@ object BlePermissions {
         requiredPermissions().filter {
             context.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
         }
+
+    /** True when the Bluetooth adapter exists and is enabled. */
+    fun isBluetoothEnabled(context: Context): Boolean {
+        val manager = context.getSystemService(BluetoothManager::class.java) ?: return false
+        return manager.adapter?.isEnabled == true
+    }
+
+    /**
+     * Full readiness for discovery/sync: all runtime permissions granted AND the
+     * Bluetooth radio is on. This is the mandatory gate before the background
+     * loop or a manual scan does anything useful.
+     */
+    fun isReady(context: Context): Boolean =
+        missing(context).isEmpty() && isBluetoothEnabled(context)
 }

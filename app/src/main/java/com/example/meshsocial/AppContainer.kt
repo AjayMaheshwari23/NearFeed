@@ -1,7 +1,6 @@
 package com.example.meshsocial
 
 import android.content.Context
-import android.util.Log
 import androidx.room.Room
 import com.example.meshsocial.ble.BleGattConnector
 import com.example.meshsocial.ble.BleGattServer
@@ -22,12 +21,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.util.UUID
 
 class AppContainer(context: Context) {
     private val appContext = context.applicationContext
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val TAG = "AppContainer"
 
     val database: AppDatabase = Room.databaseBuilder(
         appContext,
@@ -45,15 +44,21 @@ class AppContainer(context: Context) {
         localPeerId = { runBlockingOnIo { users.getCurrentUser()?.userId } },
     )
 
+    private val bleDiscovery: BlePeerDiscovery get() = peerDiscovery as BlePeerDiscovery
+
     val gattServer = BleGattServer(appContext)
 
     val connectionCoordinator = ConnectionCoordinator(
         topologyPolicy = DefaultTopologyPolicy(),
-        connector = BleGattConnector(appContext, localPeerId = {
-            runBlockingOnIo { users.getCurrentUser()?.userId }
-        }),
+        connector = BleGattConnector(
+            appContext,
+            localPeerId = { runBlockingOnIo { users.getCurrentUser()?.userId } },
+            deviceResolver = { bleDiscovery.deviceFor(it) },
+        ),
         maxActiveSyncs = 3, // top-K connection slots
-    )
+    ).also { coordinator ->
+        coordinator.onEvent = { syncEvents.tryEmit(it) }
+    }
 
     val createPost = CreatePostUseCase(posts)
 
@@ -102,7 +107,7 @@ class AppContainer(context: Context) {
 
         gattServer.onClientDisconnected = { device ->
             serverConnections.remove(device.address)?.let { conn ->
-                Log.i(TAG, "cleaned up server connection for ${device.address}")
+                Timber.i("cleaned up server connection for ${device.address}")
                 appScope.launch { conn.close() }
             }
         }
