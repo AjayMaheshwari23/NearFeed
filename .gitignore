@@ -4,6 +4,8 @@
 .DS_Store
 build/
 local.properties
+keystore.properties
+keystore/
 captures/
 .externalNativeBuild/
 .cxx/
