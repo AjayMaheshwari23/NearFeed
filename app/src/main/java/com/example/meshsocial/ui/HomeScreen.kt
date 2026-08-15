@@ -71,18 +71,14 @@ fun HomeScreen(
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             item { Composer(user, onPost) }
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    NearFeedMark(size = 14.dp)
-                    Spacer(Modifier.size(6.dp))
-                    Text(
-                        "Nearby posts · last 24h",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text(
+                    "Nearby posts · last 24h",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                )
             }
             item { FeedDivider() }
             if (posts.isEmpty()) {
@@ -132,8 +128,6 @@ private fun Composer(user: User, onPost: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            NearFeedMark(size = 12.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.size(5.dp))
             Text(
                 "Nearby network",
                 style = MaterialTheme.typography.labelSmall,

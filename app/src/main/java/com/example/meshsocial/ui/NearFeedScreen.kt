@@ -10,9 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,16 +31,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.meshsocial.R
 import com.example.meshsocial.ble.BlePermissions
 import com.example.meshsocial.ui.components.Avatar
 import com.example.meshsocial.ui.components.FeedDivider
 import com.example.meshsocial.ui.components.NearFeedMark
 
-private enum class Destination(val label: String) { HOME("Home"), DEBUG("Debug") }
+private enum class Destination(val label: String) { HOME("Home"), DEBUG("Diagnostics") }
 
 @Composable
 fun NearFeedScreen(viewModel: MainViewModel) {
@@ -163,8 +163,8 @@ private fun AppBottomNav(
             onClick = { onSelect(Destination.DEBUG) },
             icon = {
                 Icon(
-                    if (destination == Destination.DEBUG) Icons.Filled.Build else Icons.Outlined.Build,
-                    contentDescription = "Debug",
+                    painterResource(R.drawable.ic_diagnostics),
+                    contentDescription = "Diagnostics",
                     tint = if (destination == Destination.DEBUG) {
                         MaterialTheme.colorScheme.onSurface
                     } else {
@@ -174,7 +174,7 @@ private fun AppBottomNav(
             },
             label = {
                 Text(
-                    "Debug",
+                    "Diagnostics",
                     fontWeight = if (destination == Destination.DEBUG) FontWeight.Bold else FontWeight.Normal,
                 )
             },
