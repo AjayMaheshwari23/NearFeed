@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -63,6 +65,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _backgroundRunning = MutableStateFlow(false)
     val backgroundRunning: StateFlow<Boolean> = _backgroundRunning.asStateFlow()
 
+    enum class CyclePhase { WAITING, SCANNING, RECONCILING, IDLE }
+
+    data class ActivityLine(val time: String, val text: String)
+
+    private val _cyclePhase = MutableStateFlow(CyclePhase.IDLE)
+    val cyclePhase: StateFlow<CyclePhase> = _cyclePhase.asStateFlow()
+
+    private val _cycleElapsed = MutableStateFlow(0L)
+    val cycleElapsed: StateFlow<Long> = _cycleElapsed.asStateFlow()
+
+    private val _cycleTotal = MutableStateFlow(0L)
+    val cycleTotal: StateFlow<Long> = _cycleTotal.asStateFlow()
+
+    private val _postsReceived = MutableStateFlow(0)
+    val postsReceived: StateFlow<Int> = _postsReceived.asStateFlow()
+
+    private val _postsSent = MutableStateFlow(0)
+    val postsSent: StateFlow<Int> = _postsSent.asStateFlow()
+
+    private val _pendingCount = MutableStateFlow(0)
+    val pendingCount: StateFlow<Int> = _pendingCount.asStateFlow()
+
+    private val _activityLog = MutableStateFlow<List<ActivityLine>>(emptyList())
+    val activityLog: StateFlow<List<ActivityLine>> = _activityLog.asStateFlow()
+
     private val candidateTracker = PeerCandidateTracker()
     private var scanWindowJob: Job? = null
     private var backgroundJob: Job? = null
@@ -92,6 +119,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             container.syncEvents.collect { event ->
                 _syncEvents.value = (_syncEvents.value + event).takeLast(200)
+                parseCounters(event)
+                logActivity(event)
+            }
+        }
+        viewModelScope.launch {
+            while (true) {
+                _pendingCount.value = container.pendingSync.getAll().size
+                delay(5_000)
             }
         }
         viewModelScope.launch {
@@ -121,26 +156,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             while (true) {
                 if (!BlePermissions.isReady(getApplication())) {
                     _scanning.value = false
+                    _cyclePhase.value = CyclePhase.WAITING
+                    _cycleElapsed.value = 0
+                    _cycleTotal.value = 0
                     val missing = BlePermissions.missing(getApplication())
                     val btOn = BlePermissions.isBluetoothEnabled(getApplication())
                     logConnection(
                         "BG cycle: WAITING — perms missing=${missing.size}, bluetooth=$btOn"
                     )
+                    logActivity("Waiting — perms missing=${missing.size}, bluetooth=$btOn")
                     delay(Duration.ofSeconds(5).toMillis())
                     continue
                 }
                 _scanning.value = true
                 container.peerDiscovery.startDiscovery()
                 logConnection("BG cycle: scanning ${scanWindowSeconds}s")
-                delay(Duration.ofSeconds(scanWindowSeconds).toMillis())
+                logActivity("Scanning started")
+                runPhase(CyclePhase.SCANNING, scanWindowSeconds)
                 container.peerDiscovery.stopDiscovery()
                 _scanning.value = false
                 logConnection("BG cycle: window closed, reconciling top-K")
+                logActivity("Scan window closed, reconciling")
+                runPhase(CyclePhase.RECONCILING, 0)
                 reconcileConnections()
                 logConnection("BG cycle: idle ${idleGapSeconds}s")
-                delay(Duration.ofSeconds(idleGapSeconds).toMillis())
+                logActivity("Reconcile done, idle")
+                runPhase(CyclePhase.IDLE, idleGapSeconds)
             }
         }
+    }
+
+    /** Runs a cycle phase, ticking elapsed seconds for the progress display. */
+    private suspend fun runPhase(phase: CyclePhase, totalSeconds: Long) {
+        _cyclePhase.value = phase
+        _cycleTotal.value = totalSeconds
+        _cycleElapsed.value = 0
+        val step = 1_000L
+        val steps = totalSeconds
+        repeat(steps.toInt()) { i ->
+            delay(step)
+            _cycleElapsed.value = (i + 1).toLong()
+        }
+    }
+
+    private fun parseCounters(event: String) {
+        Regex("inserted (\\d+) post").find(event)?.let {
+            _postsReceived.value += it.groupValues[1].toInt()
+        }
+        Regex("sent (\\d+) post").find(event)?.let {
+            _postsSent.value += it.groupValues[1].toInt()
+        }
+    }
+
+    private fun logActivity(text: String) {
+        val time = DateTimeFormatter.ofPattern("HH:mm:ss").format(LocalTime.now())
+        _activityLog.value = (_activityLog.value + ActivityLine(time, text)).takeLast(50)
     }
 
     fun stopBackgroundSync() {

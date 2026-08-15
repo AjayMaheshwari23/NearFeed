@@ -8,14 +8,13 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,7 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -45,7 +43,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.meshsocial.ble.BlePermissions
 import com.example.meshsocial.discovery.PeerCandidate
-import com.example.meshsocial.ui.components.ReadyBanner
+import com.example.meshsocial.ui.MainViewModel.CyclePhase
+import com.example.meshsocial.ui.components.FeedDivider
 import com.example.meshsocial.ui.components.SectionHeader
 import com.example.meshsocial.ui.components.StatusDot
 import com.example.meshsocial.ui.theme.syncGreen
@@ -56,20 +55,22 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.delay
 
-/**
- * Developer/debug screen. Hosts all nearby-peer discovery, connection and sync
- * activity formerly under the "Nearby" tab, plus the in-memory sync demo.
- */
 @Composable
 fun DebugScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
+    val user by viewModel.user.collectAsStateWithLifecycle()
     val peers by viewModel.peers.collectAsStateWithLifecycle()
     val scanning by viewModel.scanning.collectAsStateWithLifecycle()
     val connectionLog by viewModel.connectionLog.collectAsStateWithLifecycle()
     val connectedPeers by viewModel.connectedPeers.collectAsStateWithLifecycle()
     val backgroundRunning by viewModel.backgroundRunning.collectAsStateWithLifecycle()
-    val syncEvents by viewModel.syncEvents.collectAsStateWithLifecycle()
-    val log by viewModel.debugLog.collectAsStateWithLifecycle()
+    val cyclePhase by viewModel.cyclePhase.collectAsStateWithLifecycle()
+    val cycleElapsed by viewModel.cycleElapsed.collectAsStateWithLifecycle()
+    val cycleTotal by viewModel.cycleTotal.collectAsStateWithLifecycle()
+    val postsReceived by viewModel.postsReceived.collectAsStateWithLifecycle()
+    val postsSent by viewModel.postsSent.collectAsStateWithLifecycle()
+    val pendingCount by viewModel.pendingCount.collectAsStateWithLifecycle()
+    val activityLog by viewModel.activityLog.collectAsStateWithLifecycle()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -78,7 +79,7 @@ fun DebugScreen(viewModel: MainViewModel) {
         else viewModel.setMessage("Nearby device permission denied")
     }
 
-    // Periodic readiness re-check so the banner clears once BT turns on.
+    // Periodic readiness re-check so status flips the moment BT turns on.
     var bleReady by remember { mutableStateOf(BlePermissions.isReady(context)) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -102,27 +103,58 @@ fun DebugScreen(viewModel: MainViewModel) {
         }
     }
 
+    val missingCount = BlePermissions.missing(context).size
+    val btOn = BlePermissions.isBluetoothEnabled(context)
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             start = 16.dp, end = 16.dp, bottom = 24.dp,
         ),
     ) {
-        // ── Readiness ─────────────────────────────────────────
-        if (!bleReady) {
-            item {
-                ReadyBanner(
-                    bluetoothOff = !BlePermissions.isBluetoothEnabled(context),
-                    missingPermissionCount = BlePermissions.missing(context).size,
-                    onAction = openSettings,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
+        // ── Network status banner ──────────────────────────────
+        item {
+            if (backgroundRunning) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    StatusDot(syncGreen, modifier = Modifier.size(10.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            "Network active",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "Background synchronization running",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else if (!bleReady) {
+                WarningStrip(btOff = !btOn, missing = missingCount, onAction = openSettings)
             }
+            Spacer(Modifier.size(8.dp))
+            FeedDivider()
         }
 
-        // ── Discovery controls ────────────────────────────────
+        // ── Bluetooth ──────────────────────────────────────────
+        item { SectionHeader("Bluetooth") }
         item {
-            SectionHeader("Discovery")
+            InfoRow("Bluetooth", if (btOn) "On" else "Off", ok = btOn)
+            InfoRow("Permissions", if (missingCount == 0) "Granted" else "$missingCount missing", ok = missingCount == 0)
+            InfoRow("GATT server", "Running", ok = backgroundRunning)
+            InfoRow("Advertising", if (backgroundRunning) "Active" else "Idle", ok = backgroundRunning)
+            InfoRow("Scanner", if (scanning) "Scanning" else "Idle", ok = scanning)
+        }
+
+        // ── Discovery ──────────────────────────────────────────
+        item { SectionHeader("Discovery") }
+        item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
@@ -144,109 +176,109 @@ fun DebugScreen(viewModel: MainViewModel) {
                         contentColor = MaterialTheme.colorScheme.onSurface,
                     ),
                 ) { Text("Reconcile") }
-                Button(
-                    onClick = viewModel::runSyncDemo,
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                    ),
-                ) { Text("Sync demo") }
             }
-            if (scanning) {
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-        }
-
-        // ── Background loop status ────────────────────────────
-        item {
-            SectionHeader("Background loop")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(if (backgroundRunning) syncGreen else warnAmber)
-                Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.size(8.dp))
+            if (peers.isEmpty()) {
                 Text(
-                    if (backgroundRunning) "Running — auto scan → top-K connect → sync" else "Stopped",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    if (bleReady) "No devices seen yet" else "Enable Bluetooth to scan",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    "${peers.size} peers nearby",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 4.dp),
                 )
             }
         }
-
-        // ── Connected peers ───────────────────────────────────
-        if (connectedPeers.isNotEmpty()) {
-            item { SectionHeader("Connected peers") }
-            items(connectedPeers, key = { it }) { peerId ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    StatusDot(syncGreen)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        peerId.toString().take(8),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        "connected",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = syncGreen,
-                    )
-                }
+        if (peers.isNotEmpty()) {
+            items(peers, key = { it.candidateId }) { candidate ->
+                DiscoveryRow(candidate, connectedPeers)
             }
         }
 
-        // ── Discovered candidates ─────────────────────────────
-        item { SectionHeader("Devices seen (${peers.size})") }
-        if (peers.isEmpty()) {
+        // ── Sync stats ─────────────────────────────────────────
+        item { SectionHeader("Sync") }
+        item {
+            InfoRow("Cycle", cyclePhaseLabel(cyclePhase))
+            InfoRow("Next reconciliation", nextReconcileLabel(cyclePhase, cycleTotal, cycleElapsed))
+            InfoRow("Connected peers", connectedPeers.size.toString(), ok = connectedPeers.isNotEmpty())
+            InfoRow("Posts received", postsReceived.toString())
+            InfoRow("Posts sent", postsSent.toString())
+            InfoRow("Pending", pendingCount.toString())
+        }
+
+        // ── Background cycle progress ──────────────────────────
+        item { SectionHeader("Background cycle") }
+        item {
+            Text(
+                cyclePhaseLabel(cyclePhase),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.size(4.dp))
+            if (cycleTotal > 0) {
+                LinearProgressIndicator(
+                    progress = { cycleElapsed.toFloat() / cycleTotal.toFloat() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    "${cycleElapsed} / ${cycleTotal}s",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            Spacer(Modifier.size(6.dp))
+            Text(
+                "Scan → Connect → Reconcile → Idle",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        // ── Recent activity ────────────────────────────────────
+        item { SectionHeader("Recent activity") }
+        if (activityLog.isEmpty()) {
             item {
                 Text(
-                    if (bleReady) "No devices yet. Keep the two phones near each other."
-                    else "Enable Bluetooth + permissions to scan.",
+                    "No activity yet",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         } else {
-            items(peers, key = { it.candidateId }) { candidate ->
-                PeerRow(candidate, connectedPeers)
+            items(activityLog.takeLast(20)) { line ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text(
+                        line.time,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        line.text,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
 
-        // ── Sync events ───────────────────────────────────────
-        if (syncEvents.isNotEmpty()) {
-            item { SectionHeader("Sync events") }
-            items(syncEvents) { event ->
-                Text(
-                    event,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 2.dp),
-                )
-            }
-        }
-
-        // ── Connection log ────────────────────────────────────
+        // ── Connection log (raw) ───────────────────────────────
         if (connectionLog.isNotEmpty()) {
-            item { SectionHeader("Connection log") }
+            item { SectionHeader("Raw log") }
             items(connectionLog) { line ->
-                Text(
-                    line,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 2.dp),
-                )
-            }
-        }
-
-        // ── In-memory sync demo log ───────────────────────────
-        if (log.isNotEmpty()) {
-            item { SectionHeader("Sync demo log") }
-            items(log) { line ->
                 Text(
                     line,
                     style = MaterialTheme.typography.bodySmall,
@@ -260,38 +292,101 @@ fun DebugScreen(viewModel: MainViewModel) {
 }
 
 @Composable
-private fun PeerRow(candidate: PeerCandidate, connectedPeers: List<UUID>) {
+private fun WarningStrip(btOff: Boolean, missing: Int, onAction: () -> Unit) {
+    Surface(
+        color = warnAmber.copy(alpha = 0.12f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                if (btOff) "Bluetooth is off" else "Permissions missing ($missing)",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                "Fix",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = warnAmber,
+                modifier = Modifier
+                    .background(warnAmber.copy(alpha = 0.15f), CircleShape)
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .clickable { onAction() },
+            )
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String, ok: Boolean = true) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = if (ok) MaterialTheme.colorScheme.onSurface else warnAmber,
+        )
+    }
+}
+
+@Composable
+private fun DiscoveryRow(candidate: PeerCandidate, connectedPeers: List<UUID>) {
     val formatter = remember { DateTimeFormatter.ofPattern("HH:mm:ss") }
     val isConnected = candidate.knownPeerId != null && candidate.knownPeerId in connectedPeers
+    val seenSeconds = (System.currentTimeMillis() - candidate.discoveredAt.toEpochMilli()) / 1000
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         StatusDot(if (isConnected) syncGreen else MaterialTheme.colorScheme.outline)
         Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                candidate.candidateId,
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = FontFamily.Monospace,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                candidate.knownPeerId?.let {
-                    Text("peer ${it.toString().take(8)}", style = MaterialTheme.typography.labelSmall)
-                }
-                Text("RSSI ${candidate.rssi}", style = MaterialTheme.typography.labelSmall)
-                Text(
-                    candidate.discoveredAt.atZone(ZoneId.systemDefault()).format(formatter),
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-        if (isConnected) {
-            Text(
-                "linked",
-                style = MaterialTheme.typography.labelSmall,
-                color = syncGreen,
-            )
-        }
+        Text(
+            candidate.candidateId,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "${candidate.rssi} dBm",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            when {
+                isConnected -> "Connected"
+                else -> "Seen ${seenSeconds}s ago"
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isConnected) syncGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
+}
+
+private fun cyclePhaseLabel(phase: CyclePhase): String = when (phase) {
+    CyclePhase.WAITING -> "Waiting"
+    CyclePhase.SCANNING -> "Scanning"
+    CyclePhase.RECONCILING -> "Reconciling"
+    CyclePhase.IDLE -> "Idle"
+}
+
+private fun nextReconcileLabel(phase: CyclePhase, total: Long, elapsed: Long): String = when (phase) {
+    CyclePhase.SCANNING -> "after scan window"
+    CyclePhase.RECONCILING -> "now"
+    CyclePhase.IDLE -> "${(total - elapsed).coerceAtLeast(0)}s"
+    CyclePhase.WAITING -> "—"
 }
