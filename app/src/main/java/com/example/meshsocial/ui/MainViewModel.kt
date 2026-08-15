@@ -95,14 +95,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var backgroundJob: Job? = null
 
     init {
+        // Start the BLE stack (GATT server, advertising, background sync) only
+        // once the user has actually granted the runtime permissions. A process
+        // started before the grant keeps stale denied state; this gate re-checks
+        // on a cadence so the app self-heals without a restart.
         viewModelScope.launch {
             container.users.observeCurrentUser().collect { user ->
                 _user.value = user
                 if (user != null) {
-                    logConnection("GATT server start (${user.userId.toString().take(8)})")
-                    container.gattServer.start()
-                    container.peerDiscovery.startAdvertising()
-                    startBackgroundSync()
+                    launchNearbyStackWhenReady(user.userId)
                 }
             }
         }
@@ -133,6 +134,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             while (true) {
                 container.posts.deleteExpired(Instant.now())
                 delay(60_000)
+            }
+        }
+    }
+
+    private var nearbyStackJob: Job? = null
+
+    /**
+     * Starts the GATT server, advertising, and the background sync loop only
+     * when BLE runtime permissions are granted. Re-checks every few seconds so a
+     * grant that happens after process start (e.g. the permission dialog) is
+     * picked up without a manual app restart.
+     */
+    private fun launchNearbyStackWhenReady(userId: UUID) {
+        if (nearbyStackJob != null) return
+        nearbyStackJob = viewModelScope.launch {
+            while (true) {
+                val context: Application = getApplication()
+                val missing = BlePermissions.missing(context)
+                val btOn = BlePermissions.isBluetoothEnabled(context)
+                if (missing.isNotEmpty() || !btOn) {
+                    logConnection(
+                        "Waiting for nearby access — perms missing=${missing.size}, bluetooth=$btOn"
+                    )
+                    delay(2_000)
+                    continue
+                }
+                logConnection("Nearby access granted — starting stack (${userId.toString().take(8)})")
+                container.gattServer.start()
+                container.peerDiscovery.startAdvertising()
+                startBackgroundSync()
+                break
             }
         }
     }
