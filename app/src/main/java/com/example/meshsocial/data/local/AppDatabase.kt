@@ -2,6 +2,8 @@ package com.example.meshsocial.data.local
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.meshsocial.data.local.dao.PendingSyncDao
 import com.example.meshsocial.data.local.dao.PeerStateDao
 import com.example.meshsocial.data.local.dao.PostDao
@@ -11,6 +13,18 @@ import com.example.meshsocial.data.local.entity.PeerStateEntity
 import com.example.meshsocial.data.local.entity.PostEntity
 import com.example.meshsocial.data.local.entity.UserEntity
 
+/**
+ * v1 → v2: posts carry the author's display name so remote peers can show the
+ * author instead of a bare UUID.
+ */
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE posts ADD COLUMN authorDisplayName TEXT NOT NULL DEFAULT ''"
+        )
+    }
+}
+
 @Database(
     entities = [
         UserEntity::class,
@@ -18,7 +32,7 @@ import com.example.meshsocial.data.local.entity.UserEntity
         PeerStateEntity::class,
         PendingSyncItemEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

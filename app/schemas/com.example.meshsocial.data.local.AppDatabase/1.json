@@ -1,0 +1,216 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "3ac52f8a8a1b4f82622c09fbdf7da923",
+    "entities": [
+      {
+        "tableName": "users",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `displayName` TEXT NOT NULL, `onboardedOnEpochMs` INTEGER NOT NULL, PRIMARY KEY(`userId`))",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "onboardedOnEpochMs",
+            "columnName": "onboardedOnEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "userId"
+          ]
+        }
+      },
+      {
+        "tableName": "posts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`postId` TEXT NOT NULL, `authorId` TEXT NOT NULL, `content` TEXT NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, `expiresAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`postId`))",
+        "fields": [
+          {
+            "fieldPath": "postId",
+            "columnName": "postId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authorId",
+            "columnName": "authorId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expiresAtEpochMs",
+            "columnName": "expiresAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "postId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_posts_authorId",
+            "unique": false,
+            "columnNames": [
+              "authorId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_posts_authorId` ON `${TABLE_NAME}` (`authorId`)"
+          },
+          {
+            "name": "index_posts_createdAtEpochMs",
+            "unique": false,
+            "columnNames": [
+              "createdAtEpochMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_posts_createdAtEpochMs` ON `${TABLE_NAME}` (`createdAtEpochMs`)"
+          },
+          {
+            "name": "index_posts_expiresAtEpochMs",
+            "unique": false,
+            "columnNames": [
+              "expiresAtEpochMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_posts_expiresAtEpochMs` ON `${TABLE_NAME}` (`expiresAtEpochMs`)"
+          }
+        ]
+      },
+      {
+        "tableName": "peer_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`peerId` TEXT NOT NULL, `lastSeenAtEpochMs` INTEGER, `lastAttemptAtEpochMs` INTEGER, `lastSuccessfulSyncAtEpochMs` INTEGER, `lastSyncStatus` TEXT, PRIMARY KEY(`peerId`))",
+        "fields": [
+          {
+            "fieldPath": "peerId",
+            "columnName": "peerId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeenAtEpochMs",
+            "columnName": "lastSeenAtEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastAttemptAtEpochMs",
+            "columnName": "lastAttemptAtEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastSuccessfulSyncAtEpochMs",
+            "columnName": "lastSuccessfulSyncAtEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastSyncStatus",
+            "columnName": "lastSyncStatus",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "peerId"
+          ]
+        }
+      },
+      {
+        "tableName": "pending_sync",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`peerId` TEXT NOT NULL, `postId` TEXT NOT NULL, `direction` TEXT NOT NULL, `state` TEXT NOT NULL, `updatedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`peerId`, `postId`, `direction`))",
+        "fields": [
+          {
+            "fieldPath": "peerId",
+            "columnName": "peerId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "postId",
+            "columnName": "postId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "direction",
+            "columnName": "direction",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMs",
+            "columnName": "updatedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "peerId",
+            "postId",
+            "direction"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_pending_sync_peerId",
+            "unique": false,
+            "columnNames": [
+              "peerId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_pending_sync_peerId` ON `${TABLE_NAME}` (`peerId`)"
+          },
+          {
+            "name": "index_pending_sync_postId",
+            "unique": false,
+            "columnNames": [
+              "postId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_pending_sync_postId` ON `${TABLE_NAME}` (`postId`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3ac52f8a8a1b4f82622c09fbdf7da923')"
+    ]
+  }
+}

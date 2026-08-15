@@ -309,7 +309,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun createPost(content: String) {
         val author = _user.value ?: return
         viewModelScope.launch {
-            when (val result = container.createPost(author.userId, content)) {
+            when (val result = container.createPost(author.userId, author.displayName, content)) {
                 is CreatePostResult.Created -> _message.value = "Posted"
                 is CreatePostResult.Rejected -> _message.value = result.reason
             }
@@ -339,6 +339,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repo.insert(Post(
                     postId = UUID.randomUUID(),
                     authorId = author,
+                    authorDisplayName = "peer ${author.toString().take(8)}",
                     content = text,
                     createdAt = now,
                     expiresAt = now.plus(Duration.ofHours(24)),

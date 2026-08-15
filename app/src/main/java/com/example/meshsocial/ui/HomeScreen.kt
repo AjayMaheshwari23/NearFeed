@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,16 +32,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.meshsocial.ble.BlePermissions
 import com.example.meshsocial.domain.model.Post
 import com.example.meshsocial.domain.model.User
 import com.example.meshsocial.ui.components.Avatar
 import com.example.meshsocial.ui.components.FeedDivider
 import com.example.meshsocial.ui.components.NearFeedMark
+import com.example.meshsocial.ui.components.ReadyBanner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Duration
@@ -53,9 +57,22 @@ fun HomeScreen(
     posts: List<Post>,
     onPost: (String) -> Unit,
     onRefresh: () -> Unit,
+    onEnableBluetooth: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
+
+    // Live BLE readiness so the Home banner flips the moment BT turns on/off.
+    val context = LocalContext.current
+    var btOn by remember { mutableStateOf(BlePermissions.isBluetoothEnabled(context)) }
+    var missingCount by remember { mutableStateOf(BlePermissions.missing(context).size) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            btOn = BlePermissions.isBluetoothEnabled(context)
+            missingCount = BlePermissions.missing(context).size
+            delay(2_000)
+        }
+    }
 
     PullToRefreshBox(
         isRefreshing = refreshing,
@@ -69,6 +86,15 @@ fun HomeScreen(
             .imePadding(),
     ) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
+            if (!btOn || missingCount > 0) {
+                item {
+                    ReadyBanner(
+                        bluetoothOff = !btOn,
+                        missingPermissionCount = missingCount,
+                        onAction = onEnableBluetooth,
+                    )
+                }
+            }
             item { Composer(user, onPost) }
             item {
                 Text(
@@ -160,8 +186,12 @@ private fun Composer(user: User, onPost: (String) -> Unit) {
 @Composable
 private fun PostRow(post: Post, localUser: User) {
     val isLocal = post.authorId == localUser.userId
-    val displayName = if (isLocal) localUser.displayName else "peer ${post.authorId.toString().take(8)}"
-    val initial = if (isLocal) localUser.displayName else post.authorId.toString().take(1)
+    val displayName = if (isLocal) localUser.displayName else {
+        post.authorDisplayName.ifBlank { "peer ${post.authorId.toString().take(8)}" }
+    }
+    val initial = if (isLocal) localUser.displayName else {
+        displayName.take(1).uppercase()
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),

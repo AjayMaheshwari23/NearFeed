@@ -119,6 +119,7 @@ object MessageCodec {
     private fun writePost(out: DataOutputStream, post: Post) {
         writeUuid(out, post.postId)
         writeUuid(out, post.authorId)
+        writeString(out, post.authorDisplayName)
         val content = post.content.toByteArray(Charsets.UTF_8)
         out.writeInt(content.size)
         out.write(content)
@@ -129,11 +130,24 @@ object MessageCodec {
     private fun readPost(input: DataInputStream): Post {
         val postId = readUuid(input)
         val authorId = readUuid(input)
+        val authorDisplayName = readString(input)
         val length = input.readInt()
         if (length < 0 || length > 100_000) throw IllegalArgumentException("invalid content length $length")
         val content = ByteArray(length).also(input::readFully).toString(Charsets.UTF_8)
         val createdAt = java.time.Instant.ofEpochMilli(input.readLong())
         val expiresAt = java.time.Instant.ofEpochMilli(input.readLong())
-        return Post(postId, authorId, content, createdAt, expiresAt)
+        return Post(postId, authorId, authorDisplayName, content, createdAt, expiresAt)
+    }
+
+    private fun writeString(out: DataOutputStream, value: String) {
+        val bytes = value.toByteArray(Charsets.UTF_8)
+        out.writeInt(bytes.size)
+        out.write(bytes)
+    }
+
+    private fun readString(input: DataInputStream): String {
+        val length = input.readInt()
+        if (length < 0 || length > 10_000) throw IllegalArgumentException("invalid string length $length")
+        return ByteArray(length).also(input::readFully).toString(Charsets.UTF_8)
     }
 }

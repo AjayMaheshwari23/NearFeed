@@ -1,5 +1,7 @@
 package com.example.meshsocial.ui
 
+import android.bluetooth.BluetoothAdapter
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -41,6 +43,7 @@ import com.example.meshsocial.ble.BlePermissions
 import com.example.meshsocial.ui.components.Avatar
 import com.example.meshsocial.ui.components.FeedDivider
 import com.example.meshsocial.ui.components.NearFeedMark
+import kotlinx.coroutines.delay
 
 private enum class Destination(val label: String) { HOME("Home"), DEBUG("Diagnostics") }
 
@@ -62,6 +65,32 @@ fun NearFeedScreen(viewModel: MainViewModel) {
         if (user != null) {
             val missing = BlePermissions.missing(context)
             if (missing.isNotEmpty()) permissionLauncher.launch(missing.toTypedArray())
+        }
+    }
+
+    // Mandatory: when BLE permissions are granted but the Bluetooth radio is
+    // off, explicitly ask the user to turn it on via the system prompt
+    // (ACTION_REQUEST_ENABLE). Kept from firing repeatedly while the prompt is
+    // already showing, and re-fires if the user toggles Bluetooth off later.
+    var btPromptShowing by remember { mutableStateOf(false) }
+    val enableBtLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { btPromptShowing = false }
+    LaunchedEffect(user != null) {
+        if (user != null) {
+            while (true) {
+                val btOn = BlePermissions.isBluetoothEnabled(context)
+                val missing = BlePermissions.missing(context)
+                if (!btOn && missing.isEmpty() && !btPromptShowing) {
+                    btPromptShowing = true
+                    try {
+                        enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                    } catch (e: Exception) {
+                        btPromptShowing = false
+                    }
+                }
+                delay(2_000)
+            }
         }
     }
 
@@ -96,7 +125,22 @@ fun NearFeedScreen(viewModel: MainViewModel) {
                 AppHeader(user!!.displayName)
                 FeedDivider()
                 when (destination) {
-                    Destination.HOME -> HomeScreen(user!!, feed, viewModel::createPost, viewModel::reconcileConnections)
+                    Destination.HOME -> HomeScreen(
+                        user = user!!,
+                        posts = feed,
+                        onPost = viewModel::createPost,
+                        onRefresh = viewModel::reconcileConnections,
+                        onEnableBluetooth = {
+                            if (!btPromptShowing) {
+                                btPromptShowing = true
+                                try {
+                                    enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                                } catch (e: Exception) {
+                                    btPromptShowing = false
+                                }
+                            }
+                        },
+                    )
                     Destination.DEBUG -> DebugScreen(viewModel)
                 }
             }

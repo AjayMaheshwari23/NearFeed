@@ -35,6 +35,7 @@ class MessageCodecTest {
                 Post(
                     postId = UUID.randomUUID(),
                     authorId = UUID.randomUUID(),
+                    authorDisplayName = "alice",
                     content = "hello mesh, this is a longer post content",
                     createdAt = now,
                     expiresAt = now.plusSeconds(86400),

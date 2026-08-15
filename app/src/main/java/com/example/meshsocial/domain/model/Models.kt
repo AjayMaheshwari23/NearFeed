@@ -12,6 +12,7 @@ data class User(
 data class Post(
     val postId: UUID,
     val authorId: UUID,
+    val authorDisplayName: String,
     val content: String,
     val createdAt: Instant,
     val expiresAt: Instant,

@@ -16,7 +16,12 @@ class CreatePostUseCase(
     private val maxPostsPerRollingDay: Int = 20,
     private val retention: Duration = Duration.ofHours(24),
 ) {
-    suspend operator fun invoke(authorId: UUID, rawContent: String, now: Instant = Instant.now()): CreatePostResult {
+    suspend operator fun invoke(
+        authorId: UUID,
+        authorDisplayName: String,
+        rawContent: String,
+        now: Instant = Instant.now(),
+    ): CreatePostResult {
         val content = rawContent.trim()
         if (content.isBlank()) return CreatePostResult.Rejected("Post cannot be empty")
         if (content.length > 500) return CreatePostResult.Rejected("Starter limit: 500 characters")
@@ -30,6 +35,7 @@ class CreatePostUseCase(
         val post = Post(
             postId = UUID.randomUUID(),
             authorId = authorId,
+            authorDisplayName = authorDisplayName,
             content = content,
             createdAt = now,
             expiresAt = now.plus(retention),

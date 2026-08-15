@@ -28,7 +28,7 @@ class PairwiseAntiEntropySynchronizerTest {
         val bPeers = InMemoryPeerStateRepository()
 
         suspend fun seed(repo: InMemoryPostRepository, author: UUID, text: String) {
-            repo.insert(Post(UUID.randomUUID(), author, text, now, now.plus(Duration.ofHours(24))))
+            repo.insert(Post(UUID.randomUUID(), author, "author-$text", text, now, now.plus(Duration.ofHours(24))))
         }
         seed(aPosts, aId, "A1")
         seed(aPosts, aId, "A2")

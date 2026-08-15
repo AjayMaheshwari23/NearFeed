@@ -22,6 +22,7 @@ data class UserEntity(
 data class PostEntity(
     val postId: String,
     val authorId: String,
+    val authorDisplayName: String,
     val content: String,
     val createdAtEpochMs: Long,
     val expiresAtEpochMs: Long,

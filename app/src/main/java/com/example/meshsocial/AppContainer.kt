@@ -8,6 +8,7 @@ import com.example.meshsocial.ble.BleGattServerConnection
 import com.example.meshsocial.ble.BlePeerDiscovery
 import com.example.meshsocial.connection.ConnectionCoordinator
 import com.example.meshsocial.data.local.AppDatabase
+import com.example.meshsocial.data.local.MIGRATION_1_2
 import com.example.meshsocial.data.repository.RoomPendingSyncRepository
 import com.example.meshsocial.data.repository.RoomPeerStateRepository
 import com.example.meshsocial.data.repository.RoomPostRepository
@@ -32,7 +33,7 @@ class AppContainer(context: Context) {
         appContext,
         AppDatabase::class.java,
         "mesh-social.db",
-    ).build()
+    ).addMigrations(MIGRATION_1_2).build()
 
     val users = RoomUserRepository(database.userDao())
     val posts = RoomPostRepository(database.postDao())
