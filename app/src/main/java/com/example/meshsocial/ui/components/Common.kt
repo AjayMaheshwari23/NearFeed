@@ -38,20 +38,21 @@ fun StatusDot(color: Color, modifier: Modifier = Modifier) {
     )
 }
 
-/** Circular avatar showing first character of a name. */
+/** Circular avatar showing first character of a name. Neutral monochrome. */
 @Composable
 fun Avatar(initial: String, size: Int = 40, modifier: Modifier = Modifier) {
+    val fallback = if (initial.isBlank()) "?" else initial
     Box(
         modifier = modifier
             .size(size.dp)
-            .background(MaterialTheme.colorScheme.primary, CircleShape),
+            .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            initial.take(1).uppercase(),
-            color = Color.White,
+            fallback.take(1).uppercase(),
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }

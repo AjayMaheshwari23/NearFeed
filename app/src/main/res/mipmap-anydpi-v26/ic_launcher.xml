@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foreground of the adaptive launcher icon: NEAR-FEED mark, padded to stay
+     clear of adaptive-icon mask crop zones. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/nearfeed_icon_bg" />
+    <foreground android:drawable="@drawable/ic_nearfeed_launcher_fg" />
+    <monochrome android:drawable="@drawable/ic_nearfeed_launcher_fg" />
+</adaptive-icon>

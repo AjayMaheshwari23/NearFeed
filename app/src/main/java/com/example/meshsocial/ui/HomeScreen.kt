@@ -1,7 +1,5 @@
 package com.example.meshsocial.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,17 +7,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -33,7 +31,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -43,8 +40,7 @@ import com.example.meshsocial.domain.model.Post
 import com.example.meshsocial.domain.model.User
 import com.example.meshsocial.ui.components.Avatar
 import com.example.meshsocial.ui.components.FeedDivider
-import com.example.meshsocial.ui.components.StatusDot
-import com.example.meshsocial.ui.theme.syncGreen
+import com.example.meshsocial.ui.components.NearFeedMark
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Duration
@@ -76,11 +72,11 @@ fun HomeScreen(
             item { Composer(user, onPost) }
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    StatusDot(syncGreen, modifier = Modifier.size(6.dp))
-                    Spacer(Modifier.width(6.dp))
+                    NearFeedMark(size = 14.dp)
+                    Spacer(Modifier.size(6.dp))
                     Text(
                         "Nearby posts · last 24h",
                         style = MaterialTheme.typography.labelMedium,
@@ -104,21 +100,25 @@ fun HomeScreen(
 @Composable
 private fun Composer(user: User, onPost: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.Top) {
             Avatar(
                 user.displayName,
-                size = 40,
+                size = 36,
                 modifier = Modifier.semantics { contentDescription = "Your profile: ${user.displayName}" },
             )
-            Spacer(Modifier.width(12.dp))
-            // X-style: multiline, essentially borderless input.
+            Spacer(Modifier.size(10.dp))
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("What's happening nearby?") },
-                maxLines = 6,
+                placeholder = {
+                    Text(
+                        "What's happening nearby?",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                maxLines = 5,
                 shape = CircleShape,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -129,15 +129,16 @@ private fun Composer(user: User, onPost: (String) -> Unit) {
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Subtle offline/BLE identity, low emphasis.
+            NearFeedMark(size = 12.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.size(5.dp))
             Text(
-                "Nearby · BLE",
+                "Nearby network",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f).padding(start = 52.dp),
+                modifier = Modifier.weight(1f),
             )
             Button(
                 onClick = {
@@ -154,9 +155,9 @@ private fun Composer(user: User, onPost: (String) -> Unit) {
                     disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                     disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),
-                modifier = Modifier.size(height = 44.dp, width = 84.dp),
+                modifier = Modifier.height(36.dp),
             ) {
-                Text("Post", fontWeight = FontWeight.Bold)
+                Text("Post", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -169,11 +170,11 @@ private fun PostRow(post: Post, localUser: User) {
     val initial = if (isLocal) localUser.displayName else post.authorId.toString().take(1)
 
     Row(
-        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Avatar(initial, size = 40)
-        Spacer(Modifier.width(12.dp))
+        Avatar(initial, size = 36)
+        Spacer(Modifier.size(10.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -182,7 +183,7 @@ private fun PostRow(post: Post, localUser: User) {
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.size(6.dp))
                 Text(
                     "· ${formatRelative(post.createdAt)}",
                     style = MaterialTheme.typography.bodySmall,
@@ -193,13 +194,13 @@ private fun PostRow(post: Post, localUser: User) {
                 post.content,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 4.dp),
+                modifier = Modifier.padding(top = 3.dp),
             )
             Text(
-                if (isLocal) "BLE · local post" else "Received nearby",
+                if (isLocal) "Nearby · Local" else "Received nearby",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = 6.dp),
             )
         }
     }
@@ -208,15 +209,13 @@ private fun PostRow(post: Post, localUser: User) {
 @Composable
 private fun EmptyFeed() {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 56.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            "◌",
-            style = MaterialTheme.typography.displaySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.size(12.dp))
+        NearFeedMark(size = 40.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.size(14.dp))
         Text(
             "Nothing nearby yet",
             style = MaterialTheme.typography.titleMedium,
@@ -228,6 +227,7 @@ private fun EmptyFeed() {
             "Posts discovered from nearby NEAR-FEED devices will appear here.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.widthIn(max = 320.dp),
         )
     }
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Native splash: black background with the NEAR-FEED mark centered via an
+     inset wrapper (inset centers the vector drawable). Dismisses as soon as
+     the Activity draws — no artificial delay. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
+    <item>
+        <inset
+            android:drawable="@drawable/ic_nearfeed_mark"
+            android:insetLeft="40dp"
+            android:insetRight="40dp"
+            android:insetTop="40dp"
+            android:insetBottom="40dp" />
+    </item>
+</layer-list>

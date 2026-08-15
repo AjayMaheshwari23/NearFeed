@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NEAR-FEED brand mark: abstract "N" formed by two peer nodes joined by a
+  diagonal, with proximity/radio-wave arcs above. Drawn in a 24x24 viewport,
+  strokes filled white (tinted at use site via Compose where needed).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- radio arcs above the nodes -->
+    <path
+        android:pathData="M6.5,8.5 a5.5,5.5 0 1 0 11,0"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M9,5.5 a2.5,2.5 0 1 0 6,0"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+
+    <!-- abstract N: left node, diagonal to right node, right node -->
+    <path
+        android:pathData="M4.5,18.5 L4.5,8.5 L19.5,18.5 L19.5,8.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+
+    <!-- peer nodes -->
+    <path
+        android:pathData="M4.5,18.5 m-2.2,0 a2.2,2.2 0 1 0 4.4,0 a2.2,2.2 0 1 0 -4.4,0"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M19.5,18.5 m-2.2,0 a2.2,2.2 0 1 0 4.4,0 a2.2,2.2 0 1 0 -4.4,0"
+        android:fillColor="#FFFFFF" />
+</vector>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base app theme (no action bar; Compose draws everything). -->
+    <style name="Theme.NearFeed" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:statusBarColor">@android:color/white</item>
+        <item name="android:navigationBarColor">@android:color/white</item>
+    </style>
+
+    <!-- Splash: black background with centered white NEAR-FEED mark. -->
+    <style name="Theme.NearFeed.Splash" parent="Theme.NearFeed">
+        <item name="android:windowBackground">@drawable/ic_splash</item>
+        <item name="android:statusBarColor">@color/splash_background</item>
+        <item name="android:navigationBarColor">@color/splash_background</item>
+    </style>
+</resources>

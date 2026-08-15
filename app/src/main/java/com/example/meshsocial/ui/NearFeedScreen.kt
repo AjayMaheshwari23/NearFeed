@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Icon
@@ -38,7 +40,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.meshsocial.ble.BlePermissions
 import com.example.meshsocial.ui.components.Avatar
 import com.example.meshsocial.ui.components.FeedDivider
-import com.example.meshsocial.ui.components.SignalGlyph
+import com.example.meshsocial.ui.components.NearFeedMark
 
 private enum class Destination(val label: String) { HOME("Home"), DEBUG("Debug") }
 
@@ -108,20 +110,16 @@ private fun AppHeader(displayName: String) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        NearFeedMark(size = 22.dp)
+        Spacer(Modifier.size(8.dp))
+        Text(
+            "NEAR-FEED",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.5.sp,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
-        ) {
-            SignalGlyph(size = 22.dp)
-            Spacer(Modifier.size(8.dp))
-            Text(
-                "NEAR-FEED",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.5.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
+        )
         Avatar(displayName, size = 28)
     }
 }
@@ -135,17 +133,57 @@ private fun AppBottomNav(
         NavigationBarItem(
             selected = destination == Destination.HOME,
             onClick = { onSelect(Destination.HOME) },
-            icon = { Icon(Icons.Outlined.Home, contentDescription = null) },
-            label = { Text("Home") },
+            icon = {
+                Icon(
+                    if (destination == Destination.HOME) Icons.Filled.Home else Icons.Outlined.Home,
+                    contentDescription = "Home",
+                    tint = if (destination == Destination.HOME) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            },
+            label = {
+                Text(
+                    "Home",
+                    fontWeight = if (destination == Destination.HOME) FontWeight.Bold else FontWeight.Normal,
+                )
+            },
+            colors = NavigationBarItemDefaults.colors(
+                selectedIconColor = MaterialTheme.colorScheme.onSurface,
+                selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                indicatorColor = MaterialTheme.colorScheme.surface,
+                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
         )
         NavigationBarItem(
             selected = destination == Destination.DEBUG,
             onClick = { onSelect(Destination.DEBUG) },
-            icon = { Icon(Icons.Outlined.Build, contentDescription = null) },
-            label = { Text("Debug") },
+            icon = {
+                Icon(
+                    if (destination == Destination.DEBUG) Icons.Filled.Build else Icons.Outlined.Build,
+                    contentDescription = "Debug",
+                    tint = if (destination == Destination.DEBUG) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            },
+            label = {
+                Text(
+                    "Debug",
+                    fontWeight = if (destination == Destination.DEBUG) FontWeight.Bold else FontWeight.Normal,
+                )
+            },
             colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = MaterialTheme.colorScheme.primary,
-                indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
+                selectedIconColor = MaterialTheme.colorScheme.onSurface,
+                selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                indicatorColor = MaterialTheme.colorScheme.surface,
+                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
             ),
         )
     }
