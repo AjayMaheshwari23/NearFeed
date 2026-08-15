@@ -6,6 +6,12 @@ without any server or internet connection.
 
 ---
 
+## Demo
+
+<video src="docs/demo_video.mp4" controls style="max-width: 100%;"></video>
+
+---
+
 ## V1 screenshots
 
 <table>
