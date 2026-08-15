@@ -1,15 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Native splash: black background with the NEAR-FEED mark centered via an
-     inset wrapper (inset centers the vector drawable). Dismisses as soon as
-     the Activity draws — no artificial delay. -->
+<!-- Native splash: black background with the NEAR-FEED mark centered.
+     Centering uses gravity (not an <inset>), because an inset wrapper reports
+     non-zero padding to the DecorView's window background, leaking a 40dp
+     letterbox into the app content (squeezed the whole UI on cutout phones).
+     Dismisses as soon as the Activity draws — no artificial delay. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/splash_background" />
-    <item>
-        <inset
-            android:drawable="@drawable/ic_nearfeed_mark"
-            android:insetLeft="40dp"
-            android:insetRight="40dp"
-            android:insetTop="40dp"
-            android:insetBottom="40dp" />
-    </item>
+    <item
+        android:gravity="center"
+        android:drawable="@drawable/ic_nearfeed_mark" />
 </layer-list>
