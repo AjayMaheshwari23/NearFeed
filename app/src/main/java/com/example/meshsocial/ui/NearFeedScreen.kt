@@ -2,7 +2,6 @@ package com.example.meshsocial.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,18 +9,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -43,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.meshsocial.ble.BlePermissions
 import com.example.meshsocial.ui.components.Avatar
 import com.example.meshsocial.ui.components.FeedDivider
+import com.example.meshsocial.ui.components.SignalGlyph
 
 private enum class Destination(val label: String) { HOME("Home"), DEBUG("Debug") }
 
@@ -86,9 +82,8 @@ fun NearFeedScreen(viewModel: MainViewModel) {
         },
     ) { padding ->
         if (user == null) {
-            Onboarding(
+            OnboardingScreen(
                 onCreate = viewModel::createProfile,
-                modifier = Modifier.padding(padding),
             )
         } else {
             Column(
@@ -113,14 +108,20 @@ private fun AppHeader(displayName: String) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            "NEAR-FEED",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.ExtraBold,
-            letterSpacing = 0.5.sp,
-            color = MaterialTheme.colorScheme.onSurface,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.weight(1f),
-        )
+        ) {
+            SignalGlyph(size = 22.dp)
+            Spacer(Modifier.size(8.dp))
+            Text(
+                "NEAR-FEED",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 0.5.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
         Avatar(displayName, size = 28)
     }
 }
@@ -147,48 +148,5 @@ private fun AppBottomNav(
                 indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
             ),
         )
-    }
-}
-
-@Composable
-private fun Onboarding(modifier: Modifier = Modifier, onCreate: (String) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            "NEAR-FEED",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.size(8.dp))
-        Text(
-            "Post to the mesh. Discovered nearby, synced peer-to-peer.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.size(24.dp))
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Display name") },
-            singleLine = true,
-            shape = CircleShape,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.size(16.dp))
-        Button(
-            onClick = { if (name.isNotBlank()) onCreate(name.trim()) },
-            enabled = name.isNotBlank(),
-            shape = CircleShape,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Create profile", fontWeight = FontWeight.Bold)
-        }
     }
 }
