@@ -99,9 +99,18 @@ synced, `p3` random tie-break.
 
 ## V0 screenshots
 
-![Home screen](docs/v0_home_screen.jpeg)
-![Debug screen](docs/v0_debug_screen.jpeg)
-![Profile capture](docs/v0_profile_capture.jpg)
+<table>
+  <tr>
+    <td width="33%"><img src="docs/v0_home_screen.jpeg" alt="Home screen"></td>
+    <td width="33%"><img src="docs/v0_debug_screen.jpeg" alt="Debug screen"></td>
+    <td width="33%"><img src="docs/v0_profile_capture.jpg" alt="Profile capture"></td>
+  </tr>
+  <tr align="center">
+    <td>Home screen</td>
+    <td>Debug screen</td>
+    <td>Profile capture</td>
+  </tr>
+</table>
 
 ---
 
