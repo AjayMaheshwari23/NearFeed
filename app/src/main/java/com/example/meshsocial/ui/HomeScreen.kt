@@ -1,6 +1,7 @@
 package com.example.meshsocial.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -16,17 +18,24 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,31 +43,59 @@ import com.example.meshsocial.domain.model.Post
 import com.example.meshsocial.domain.model.User
 import com.example.meshsocial.ui.components.Avatar
 import com.example.meshsocial.ui.components.FeedDivider
+import com.example.meshsocial.ui.components.StatusDot
+import com.example.meshsocial.ui.theme.syncGreen
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(user: User, posts: List<Post>, onPost: (String) -> Unit) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+fun HomeScreen(
+    user: User,
+    posts: List<Post>,
+    onPost: (String) -> Unit,
+    onRefresh: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var refreshing by remember { mutableStateOf(false) }
+
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = {
+            refreshing = true
+            onRefresh()
+            scope.launch { delay(900); refreshing = false }
+        },
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
     ) {
-        item { Composer(user, onPost) }
-        item { FeedDivider() }
-        if (posts.isEmpty()) {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            item { Composer(user, onPost) }
             item {
-                Text(
-                    "Nothing here yet.\nPost something — it'll be shared with nearby devices.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(24.dp),
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    StatusDot(syncGreen, modifier = Modifier.size(6.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Nearby posts · last 24h",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-        } else {
-            items(posts, key = { it.postId }) { post ->
-                PostRow(post, user)
-                FeedDivider()
+            item { FeedDivider() }
+            if (posts.isEmpty()) {
+                item { EmptyFeed() }
+            } else {
+                items(posts, key = { it.postId }) { post ->
+                    PostRow(post, user)
+                    FeedDivider()
+                }
             }
         }
     }
@@ -67,23 +104,41 @@ fun HomeScreen(user: User, posts: List<Post>, onPost: (String) -> Unit) {
 @Composable
 private fun Composer(user: User, onPost: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
-    Column(Modifier.padding(16.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.Top) {
-            Avatar(user.displayName, size = 44)
+            Avatar(
+                user.displayName,
+                size = 40,
+                modifier = Modifier.semantics { contentDescription = "Your profile: ${user.displayName}" },
+            )
             Spacer(Modifier.width(12.dp))
+            // X-style: multiline, essentially borderless input.
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("What's happening nearby?") },
+                maxLines = 6,
                 shape = CircleShape,
-                maxLines = 4,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                ),
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-            horizontalArrangement = Arrangement.End,
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Subtle offline/BLE identity, low emphasis.
+            Text(
+                "Nearby · BLE",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f).padding(start = 52.dp),
+            )
             Button(
                 onClick = {
                     if (text.isNotBlank()) {
@@ -94,9 +149,12 @@ private fun Composer(user: User, onPost: (String) -> Unit) {
                 enabled = text.isNotBlank(),
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
+                    containerColor = MaterialTheme.colorScheme.onSurface,
+                    contentColor = MaterialTheme.colorScheme.surface,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),
-                modifier = Modifier.padding(horizontal = 2.dp),
+                modifier = Modifier.size(height = 44.dp, width = 84.dp),
             ) {
                 Text("Post", fontWeight = FontWeight.Bold)
             }
@@ -114,7 +172,7 @@ private fun PostRow(post: Post, localUser: User) {
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Avatar(initial, size = 44)
+        Avatar(initial, size = 40)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -126,7 +184,7 @@ private fun PostRow(post: Post, localUser: User) {
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    formatRelative(post.createdAt),
+                    "· ${formatRelative(post.createdAt)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -137,26 +195,40 @@ private fun PostRow(post: Post, localUser: User) {
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 4.dp),
             )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            Text(
+                if (isLocal) "BLE · local post" else "Received nearby",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),
-            ) {
-                if (!isLocal) {
-                    Text(
-                        "↯ received nearby",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    Spacer(Modifier.width(12.dp))
-                }
-                Text(
-                    if (isLocal) "synced to nearby"
-                    else "BLE · expires ${formatDuration(post.expiresAt)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            )
         }
+    }
+}
+
+@Composable
+private fun EmptyFeed() {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            "◌",
+            style = MaterialTheme.typography.displaySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.size(12.dp))
+        Text(
+            "Nothing nearby yet",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.size(6.dp))
+        Text(
+            "Posts discovered from nearby NEAR-FEED devices will appear here.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -168,9 +240,4 @@ private fun formatRelative(instant: Instant): String {
         minutes < 1440 -> "${minutes / 60}h"
         else -> "${minutes / 1440}d"
     }
-}
-
-private fun formatDuration(instant: Instant): String {
-    val hours = Duration.between(Instant.now(), instant).toHours().coerceAtLeast(0)
-    return if (hours < 1) "${Duration.between(Instant.now(), instant).toMinutes().coerceAtLeast(0)}m" else "${hours}h"
 }

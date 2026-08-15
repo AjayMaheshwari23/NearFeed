@@ -99,7 +99,7 @@ fun NearFeedScreen(viewModel: MainViewModel) {
                 AppHeader(user!!.displayName)
                 FeedDivider()
                 when (destination) {
-                    Destination.HOME -> HomeScreen(user!!, feed, viewModel::createPost)
+                    Destination.HOME -> HomeScreen(user!!, feed, viewModel::createPost, viewModel::reconcileConnections)
                     Destination.DEBUG -> DebugScreen(viewModel)
                 }
             }
