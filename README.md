@@ -97,6 +97,14 @@ synced, `p3` random tie-break.
 
 ---
 
+## V0 screenshots
+
+![Home screen](docs/v0_home_screen.jpeg)
+![Debug screen](docs/v0_debug_screen.jpeg)
+![Profile capture](docs/v0_profile_capture.jpg)
+
+---
+
 ## What is implemented
 
 - Native Android / Kotlin / Jetpack Compose shell.
