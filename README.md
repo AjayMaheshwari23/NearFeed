@@ -8,7 +8,7 @@ without any server or internet connection.
 
 ## Demo
 
-<video src="docs/demo_video.mp4" controls style="max-width: 100%;"></video>
+<video src="https://github.com/AjayMaheshwari23/NearFeed/raw/main/docs/demo_video.mp4" controls style="max-width: 100%;"></video>
 
 ---
 
