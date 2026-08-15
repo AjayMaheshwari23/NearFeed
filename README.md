@@ -6,6 +6,23 @@ without any server or internet connection.
 
 ---
 
+## V1 screenshots
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/v1_profile_capture.jpg" alt="Profile capture"></td>
+    <td width="33%"><img src="docs/v1_home_screen.jpeg" alt="Home screen"></td>
+    <td width="33%"><img src="docs/v1_debug_screen.jpg" alt="Debug screen"></td>
+  </tr>
+  <tr align="center">
+    <td>Profile capture</td>
+    <td>Home screen</td>
+    <td>Debug screen</td>
+  </tr>
+</table>
+
+---
+
 ## Requirements
 
 ![Requirements](docs/design_01.png)
@@ -94,23 +111,6 @@ truth — it would go stale as devices independently meet others.
 
 Selection strategy: `p0` unfinished sync, `p1` never synced, `p2` least recently
 synced, `p3` random tie-break.
-
----
-
-## V0 screenshots
-
-<table>
-  <tr>
-    <td width="33%"><img src="docs/v0_home_screen.jpeg" alt="Home screen"></td>
-    <td width="33%"><img src="docs/v0_debug_screen.jpeg" alt="Debug screen"></td>
-    <td width="33%"><img src="docs/v0_profile_capture.jpg" alt="Profile capture"></td>
-  </tr>
-  <tr align="center">
-    <td>Home screen</td>
-    <td>Debug screen</td>
-    <td>Profile capture</td>
-  </tr>
-</table>
 
 ---
 
@@ -213,3 +213,20 @@ close, and posts converge.
 2. `FrameCodec` for messages larger than the negotiated ATT MTU.
 3. Automatic topology rotation (disconnect after reconciliation, rotate through peers).
 4. Sync/debug screen surfacing live peers, last sync, records sent/received, and protocol state.
+
+---
+
+## V0 screenshots
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/v0_profile_capture.jpg" alt="Profile capture"></td>
+    <td width="33%"><img src="docs/v0_home_screen.jpeg" alt="Home screen"></td>
+    <td width="33%"><img src="docs/v0_debug_screen.jpeg" alt="Debug screen"></td>
+  </tr>
+  <tr align="center">
+    <td>Profile capture</td>
+    <td>Home screen</td>
+    <td>Debug screen</td>
+  </tr>
+</table>
