@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Foreground of the adaptive launcher icon: NEAR-FEED mark, padded to stay
-     clear of adaptive-icon mask crop zones. -->
+<!-- Adaptive launcher icon: black background + official NEAR-FEED mark. The
+     foreground PNG is pre-scaled into the adaptive safe zone so masks don't
+     crop the nodes or radio arcs. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/nearfeed_icon_bg" />
-    <foreground android:drawable="@drawable/ic_nearfeed_launcher_fg" />
-    <monochrome android:drawable="@drawable/ic_nearfeed_launcher_fg" />
+    <foreground android:drawable="@drawable/ic_launcher_fg" />
+    <monochrome android:drawable="@drawable/ic_launcher_fg" />
 </adaptive-icon>
