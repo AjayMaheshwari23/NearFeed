@@ -1,9 +1,5 @@
 package com.example.meshsocial.ui
 
-import android.bluetooth.BluetoothAdapter
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -12,43 +8,43 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.meshsocial.ble.BlePermissions
-import com.example.meshsocial.discovery.PeerCandidate
-import com.example.meshsocial.domain.model.Post
-import com.example.meshsocial.domain.model.User
-import kotlinx.coroutines.delay
-import timber.log.Timber
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.UUID
+import com.example.meshsocial.ui.components.Avatar
+import com.example.meshsocial.ui.components.FeedDivider
 
-private enum class Tab { HOME, NEARBY, DEBUG }
+private enum class Destination(val label: String) { HOME("Home"), DEBUG("Debug") }
 
 @Composable
 fun NearFeedScreen(viewModel: MainViewModel) {
@@ -56,54 +52,18 @@ fun NearFeedScreen(viewModel: MainViewModel) {
     val user by viewModel.user.collectAsStateWithLifecycle()
     val feed by viewModel.feed.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
-    val log by viewModel.debugLog.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
 
-    // Auto-request BLE runtime permissions once a profile exists. Required on
-    // real devices where adb `pm grant` is OEM-blocked and the background loop
-    // cannot show the system dialog itself.
+    var destination by rememberSaveable { mutableStateOf(Destination.HOME) }
+
+    // Auto-request BLE permissions once a profile exists.
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { }
     LaunchedEffect(user != null) {
         if (user != null) {
             val missing = BlePermissions.missing(context)
-            if (missing.isNotEmpty()) {
-                permissionLauncher.launch(missing.toTypedArray())
-            }
-        }
-    }
-
-    // If Bluetooth is off, offer the system "turn on Bluetooth" dialog. This is
-    // the mandatory gate: without the radio, scanning/advertising/connecting all
-    // fail silently (the #1 cause of "connect timeout" on real phones).
-    val enableBtLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { }
-
-    // Re-check readiness periodically so the banner clears the moment the user
-    // turns Bluetooth on or grants permissions.
-    var bleReady by remember { mutableStateOf(BlePermissions.isReady(context)) }
-    LaunchedEffect(user != null) {
-        while (user != null) {
-            bleReady = BlePermissions.isReady(context)
-            delay(2_000)
-        }
-    }
-    val openSettings = {
-        try {
-            enableBtLauncher.launch(
-                Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-            )
-        } catch (e: Exception) {
-            // ACTION_REQUEST_ENABLE can fail on some OEMs; fall back to settings.
-            try {
-                enableBtLauncher.launch(
-                    Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
-                )
-            } catch (e2: Exception) {
-                Timber.e("could not open bluetooth settings: ${e2.message}")
-            }
+            if (missing.isNotEmpty()) permissionLauncher.launch(missing.toTypedArray())
         }
     }
 
@@ -114,60 +74,79 @@ fun NearFeedScreen(viewModel: MainViewModel) {
         }
     }
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            if (user != null) {
+                AppBottomNav(
+                    destination = destination,
+                    onSelect = { destination = it },
+                )
+            }
+        },
+    ) { padding ->
         if (user == null) {
             Onboarding(
-                modifier = Modifier.padding(padding),
                 onCreate = viewModel::createProfile,
+                modifier = Modifier.padding(padding),
             )
         } else {
-            var tab by remember { mutableStateOf(Tab.HOME) }
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
+                    .padding(padding),
             ) {
-                Text("NEAR-FEED", style = MaterialTheme.typography.headlineMedium)
-                Text("Local user: ${user!!.displayName} • ${user!!.userId.toString().take(8)}")
-                Spacer(Modifier.height(8.dp))
-                if (!bleReady) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                        ),
-                    ) {
-                        Column(Modifier.padding(12.dp)) {
-                            val missing = BlePermissions.missing(context)
-                            val btOn = BlePermissions.isBluetoothEnabled(context)
-                            Text(
-                                if (!btOn) "Bluetooth is OFF — sync cannot work"
-                                else "Missing permissions (${missing.size}) — sync cannot work",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Button(onClick = openSettings) {
-                                Text(if (!btOn) "Turn on Bluetooth" else "Grant permissions")
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { tab = Tab.HOME }) { Text("Home") }
-                    Button(onClick = { tab = Tab.NEARBY }) { Text("Nearby") }
-                    Button(onClick = { tab = Tab.DEBUG }) { Text("Debug") }
-                }
-                Spacer(Modifier.height(12.dp))
-                when (tab) {
-                    Tab.HOME -> HomeFeed(user!!, feed, viewModel::createPost)
-                    Tab.NEARBY -> NearbyPeersTab(viewModel)
-                    Tab.DEBUG -> DebugScreen(log, viewModel::runSyncDemo)
+                AppHeader(user!!.displayName)
+                FeedDivider()
+                when (destination) {
+                    Destination.HOME -> HomeScreen(user!!, feed, viewModel::createPost)
+                    Destination.DEBUG -> DebugScreen(viewModel)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AppHeader(displayName: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "NEAR-FEED",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.5.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Avatar(displayName, size = 28)
+    }
+}
+
+@Composable
+private fun AppBottomNav(
+    destination: Destination,
+    onSelect: (Destination) -> Unit,
+) {
+    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+        NavigationBarItem(
+            selected = destination == Destination.HOME,
+            onClick = { onSelect(Destination.HOME) },
+            icon = { Icon(Icons.Outlined.Home, contentDescription = null) },
+            label = { Text("Home") },
+        )
+        NavigationBarItem(
+            selected = destination == Destination.DEBUG,
+            onClick = { onSelect(Destination.DEBUG) },
+            icon = { Icon(Icons.Outlined.Build, contentDescription = null) },
+            label = { Text("Debug") },
+            colors = NavigationBarItemDefaults.colors(
+                selectedIconColor = MaterialTheme.colorScheme.primary,
+                indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        )
     }
 }
 
@@ -178,281 +157,38 @@ private fun Onboarding(modifier: Modifier = Modifier, onCreate: (String) -> Unit
         modifier = modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("Create local profile", style = MaterialTheme.typography.headlineMedium)
-        Text("V1 uses a locally generated UUID; no server or cryptographic identity.")
-        Spacer(Modifier.height(16.dp))
+        Text(
+            "NEAR-FEED",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.size(8.dp))
+        Text(
+            "Post to the mesh. Discovered nearby, synced peer-to-peer.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.size(24.dp))
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
             label = { Text("Display name") },
+            singleLine = true,
+            shape = CircleShape,
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(12.dp))
-        Button(onClick = { onCreate(name) }) { Text("Create profile") }
-    }
-}
-
-@Composable
-private fun HomeFeed(user: User, posts: List<Post>, onPost: (String) -> Unit) {
-    var content by remember { mutableStateOf("") }
-    Column(modifier = Modifier.fillMaxSize()) {
-        OutlinedTextField(
-            value = content,
-            onValueChange = { content = it },
-            label = { Text("What's happening nearby?") },
+        Spacer(Modifier.size(16.dp))
+        Button(
+            onClick = { if (name.isNotBlank()) onCreate(name.trim()) },
+            enabled = name.isNotBlank(),
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+            ),
             modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(8.dp))
-        Button(onClick = {
-            onPost(content)
-            content = ""
-        }) { Text("Post") }
-        Spacer(Modifier.height(16.dp))
-        Text("Active 24-hour feed", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(posts, key = { it.postId }) { PostCard(it, user) }
-        }
-    }
-}
-
-@Composable
-private fun PostCard(post: Post, localUser: User) {
-    val formatter = remember { DateTimeFormatter.ofPattern("HH:mm:ss") }
-    val author = if (post.authorId == localUser.userId) localUser.displayName else post.authorId.toString().take(8)
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Text(author, style = MaterialTheme.typography.labelLarge)
-            Text(post.content, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                post.createdAt.atZone(ZoneId.systemDefault()).format(formatter),
-                style = MaterialTheme.typography.labelSmall,
-            )
-        }
-    }
-}
-
-@Composable
-private fun NearbyPeersTab(viewModel: MainViewModel) {
-    val context = LocalContext.current
-    val peers by viewModel.peers.collectAsStateWithLifecycle()
-    val scanning by viewModel.scanning.collectAsStateWithLifecycle()
-    val connectionLog by viewModel.connectionLog.collectAsStateWithLifecycle()
-    val connectedPeers by viewModel.connectedPeers.collectAsStateWithLifecycle()
-    val backgroundRunning by viewModel.backgroundRunning.collectAsStateWithLifecycle()
-    val syncEvents by viewModel.syncEvents.collectAsStateWithLifecycle()
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        if (grants.all { it.value }) {
-            viewModel.startDiscovery()
-        } else {
-            viewModel.setMessage("Nearby device permission denied")
-        }
-    }
-
-    val bleAvailable = context.packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // ── Header ──────────────────────────────────────────────
-        item {
-            Text("Nearby peer discovery", style = MaterialTheme.typography.titleLarge)
-            Text("BLE scan + advertise for other NEAR-FEED devices. Scans are time-bounded.")
-            Spacer(Modifier.height(12.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {
-                        if (scanning) {
-                            viewModel.stopDiscovery()
-                        } else {
-                            val missing = BlePermissions.missing(context)
-                            if (missing.isEmpty()) {
-                                viewModel.startDiscovery()
-                            } else {
-                                permissionLauncher.launch(missing.toTypedArray())
-                            }
-                        }
-                    },
-                    enabled = bleAvailable,
-                ) {
-                    Text(if (scanning) "Stop scan" else "Scan for nearby devices")
-                }
-                Button(
-                    onClick = { viewModel.reconcileConnections() },
-                    enabled = peers.isNotEmpty(),
-                ) {
-                    Text("Reconcile")
-                }
-            }
-            if (!bleAvailable) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "BLE is not available on this device.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            if (scanning) {
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-        }
-
-        // ── Background loop status ─────────────────────────────
-        item {
-            Spacer(Modifier.height(8.dp))
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(
-                        if (backgroundRunning) "● Background sync RUNNING" else "○ Background sync stopped",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = if (backgroundRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                    )
-                    Text(
-                        if (backgroundRunning) "Auto scan → top-K connect → sync, repeating" else "manual mode",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-        }
-
-        // ── Connected peers ─────────────────────────────────────
-        if (connectedPeers.isNotEmpty()) {
-            item {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "${connectedPeers.size} connected peer(s)",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
-            items(connectedPeers, key = { it }) { peerId ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    ),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text("●", color = MaterialTheme.colorScheme.primary)
-                        Text(
-                            peerId.toString().take(8),
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                        Text("connected", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
-
-        // ── Discovered candidates ───────────────────────────────
-        item {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "${peers.size} device(s) seen",
-                style = MaterialTheme.typography.labelMedium,
-            )
-        }
-        items(peers, key = { it.candidateId }) { candidate ->
-            PeerCandidateCard(candidate, connectedPeers)
-        }
-
-        // ── Connection log ──────────────────────────────────────
-        if (connectionLog.isNotEmpty()) {
-            item {
-                Spacer(Modifier.height(12.dp))
-                Text("Connection log", style = MaterialTheme.typography.titleMedium)
-            }
-            items(connectionLog) { line ->
-                Text(
-                    line,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-            }
-        }
-
-        // ── Sync events (posts transferred) ─────────────────────
-        if (syncEvents.isNotEmpty()) {
-            item {
-                Spacer(Modifier.height(12.dp))
-                Text("Sync events", style = MaterialTheme.typography.titleMedium)
-            }
-            items(syncEvents) { event ->
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        event,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(8.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PeerCandidateCard(candidate: PeerCandidate, connectedPeers: List<UUID>) {
-    val formatter = remember { DateTimeFormatter.ofPattern("HH:mm:ss") }
-    val isConnected = candidate.knownPeerId != null && candidate.knownPeerId in connectedPeers
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = if (isConnected) {
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            )
-        } else {
-            CardDefaults.cardColors()
-        },
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(candidate.candidateId, style = MaterialTheme.typography.labelLarge)
-                if (isConnected) {
-                    Text(
-                        "● linked",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("RSSI ${candidate.rssi} dBm", style = MaterialTheme.typography.bodyMedium)
-                candidate.knownPeerId?.let {
-                    Text("peer ${it.toString().take(8)}", style = MaterialTheme.typography.bodySmall)
-                }
-                Text(
-                    candidate.discoveredAt.atZone(ZoneId.systemDefault()).format(formatter),
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DebugScreen(log: List<String>, runDemo: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Text("Phase-1 debug", style = MaterialTheme.typography.titleLarge)
-        Text("Room + resumable in-memory anti-entropy are wired. BLE discovery adapter exists in code; GATT data channel is the next milestone.")
-        Spacer(Modifier.height(12.dp))
-        Button(onClick = runDemo) { Text("Run interrupted/resumed sync demo") }
-        Spacer(Modifier.height(12.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(log) { line ->
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Text(line, modifier = Modifier.padding(10.dp))
-                }
-            }
+        ) {
+            Text("Create profile", fontWeight = FontWeight.Bold)
         }
     }
 }
