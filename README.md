@@ -10,6 +10,8 @@ without any server or internet connection.
 
 <video src="https://github.com/AjayMaheshwari23/NearFeed/raw/main/docs/demo_video.mp4" controls style="max-width: 100%;"></video>
 
+Want the full-quality video? [Watch the original on Google Drive](https://drive.google.com/file/d/1GMiRIAZ7gUNNUBTQmMyTiawGss15m1v5/view?usp=sharing).
+
 ---
 
 ## V1 screenshots
