@@ -238,3 +238,9 @@ close, and posts converge.
     <td>Debug screen</td>
   </tr>
 </table>
+
+---
+
+## Architecture overview
+
+![Architecture diagram](docs/architecture_diagram.svg)
